@@ -1,0 +1,22 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+  data:
+    mongodb:
+      uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/auth_db?replicaSet=rs0
+  # Redis configuration will be added later when needed
+
+# JWT Configuration (will be implemented in later steps)
+app:
+  jwt:
+    secret: flash-sale-engine-secret-key-change-in-production
+    expiration: 86400000 # 24 hours in milliseconds
+
+# Logging
+logging:
+  level:
+    com.flashsale: info
+    org.springframework: warn

@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      routes:
+        # Routes will be added in later steps when services are implemented
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/v1/auth/**
+        - id: catalog-service
+          uri: lb://catalog-service
+          predicates:
+            - Path=/api/v1/events/**
+        - id: reservation-service
+          uri: lb://reservation-service
+          predicates:
+            - Path=/api/v1/reservations/**
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders/**
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments/**

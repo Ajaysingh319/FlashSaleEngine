@@ -1,0 +1,15 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: order-service
+  data:
+    mongodb:
+      uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/order_db?replicaSet=rs0
+
+# Logging
+logging:
+  level:
+    com.flashsale: info
+    org.springframework: warn

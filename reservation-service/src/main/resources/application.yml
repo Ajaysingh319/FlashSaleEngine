@@ -1,0 +1,16 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: reservation-service
+  data:
+    mongodb:
+      uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/reservation_db?replicaSet=rs0
+  # Redis configuration will be added later when needed
+
+# Logging
+logging:
+  level:
+    com.flashsale: info
+    org.springframework: warn
