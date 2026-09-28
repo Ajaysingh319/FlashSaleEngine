@@ -1,0 +1,12 @@
+# Maven
+target/
+*.class
+*.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Maven generated files
+pom.properties
+inputFiles.lst
