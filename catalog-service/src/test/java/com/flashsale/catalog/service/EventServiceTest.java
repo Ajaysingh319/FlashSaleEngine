@@ -136,7 +136,7 @@ class EventServiceTest {
         event.setSaleEndTime(now.plusSeconds(3600));
         event.setStatus("ON_SALE");
 
-        when(eventRepository.findBySaleStartTimeBeforeAndSaleEndTimeAfter(now, now))
+        when(eventRepository.findBySaleStartTimeBeforeAndSaleEndTimeAfter(any(Instant.class), any(Instant.class)))
                 .thenReturn(Arrays.asList(event));
 
         List<EventResponse> responses = eventService.getEventsOnSale();

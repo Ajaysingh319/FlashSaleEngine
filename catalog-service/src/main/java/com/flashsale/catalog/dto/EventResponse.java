@@ -17,6 +17,26 @@ public class EventResponse {
     private Instant createdAt;
     private Instant updatedAt;
 
+    public EventResponse() {
+    }
+
+    public EventResponse(String id, String name, String description, String venue, String city,
+                         Instant startTime, Instant endTime, Instant saleStartTime, Instant saleEndTime,
+                         String status, Instant createdAt, Instant updatedAt) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.venue = venue;
+        this.city = city;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.saleStartTime = saleStartTime;
+        this.saleEndTime = saleEndTime;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
     public String getId() {
         return id;
     }
