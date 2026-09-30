@@ -8,6 +8,14 @@ spring:
     mongodb:
       uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/order_db?replicaSet=rs0
       auto-index-creation: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
 
 reservation:
   service:
@@ -16,6 +24,15 @@ reservation:
 catalog:
   service:
     url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+
+order:
+  kafka:
+    outbox-publish-interval: ${ORDER_OUTBOX_PUBLISH_INTERVAL:5000}
+    topics:
+      created: ${ORDER_CREATED_TOPIC:order.created}
+      cancelled: ${ORDER_CANCELLED_TOPIC:order.cancelled}
+      confirmed: ${ORDER_CONFIRMED_TOPIC:order.confirmed}
+      payment-failed: ${ORDER_PAYMENT_FAILED_TOPIC:order.payment_failed}
 
 app:
   jwt:

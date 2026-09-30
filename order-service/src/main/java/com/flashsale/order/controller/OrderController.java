@@ -36,6 +36,11 @@ public class OrderController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{orderId}/cancel")
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable String orderId, Principal principal) {
+        return ResponseEntity.ok(orderService.cancelOrder(orderId, principal.getName()));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<List<OrderResponse>> getMyOrders(Principal principal) {
         String userId = principal.getName();

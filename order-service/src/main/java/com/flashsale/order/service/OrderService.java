@@ -16,6 +16,7 @@ import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.ReservationExpiredException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
+import com.flashsale.order.outbox.OrderOutboxService;
 import org.springframework.dao.DuplicateKeyException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,6 +43,7 @@ public class OrderService {
     private final IdempotencyRepository idempotencyRepository;
     private final ReservationServiceClient reservationServiceClient;
     private final CatalogServiceClient catalogServiceClient;
+    private final OrderOutboxService orderOutboxService;
 
     @Transactional
     public OrderResponse createOrder(String userId, String idempotencyKey, OrderRequest request) {
@@ -89,6 +91,39 @@ public class OrderService {
         } catch (DuplicateKeyException exception) {
             throw new ReservationAlreadyUsedException(reservation.getReservationId());
         }
+        orderOutboxService.appendCreated(order);
+        return toResponse(order);
+    }
+
+    /** User-requested cancellation; the order update and its event share one local transaction. */
+    @Transactional
+    public OrderResponse cancelOrder(String orderId, String userId) {
+        Order order = orderForUser(orderId, userId);
+        order.cancel(Instant.now());
+        orderRepository.save(order);
+        orderOutboxService.appendCancelled(order);
+        return toResponse(order);
+    }
+
+    /** Reserved for a future Payment-result consumer; it deliberately contains no Kafka consumption logic. */
+    @Transactional
+    public OrderResponse confirmPayment(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
+        order.confirmPayment(Instant.now());
+        orderRepository.save(order);
+        orderOutboxService.appendConfirmed(order);
+        return toResponse(order);
+    }
+
+    /** Reserved for a future Payment-result consumer; it deliberately contains no Kafka consumption logic. */
+    @Transactional
+    public OrderResponse failPayment(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
+        order.failPayment(Instant.now());
+        orderRepository.save(order);
+        orderOutboxService.appendPaymentFailed(order);
         return toResponse(order);
     }
 
@@ -132,12 +167,7 @@ public class OrderService {
     }
 
     public OrderResponse getOrder(String orderId, String userId) {
-        Order order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-        if (!order.getUserId().equals(userId)) {
-            throw new UnauthorizedOrderAccessException("User not authorized to access this order");
-        }
-        return toResponse(order);
+        return toResponse(orderForUser(orderId, userId));
     }
 
     public List<OrderResponse> getMyOrders(String userId) {
@@ -161,5 +191,14 @@ public class OrderService {
         response.setCreatedAt(order.getCreatedAt());
         response.setUpdatedAt(order.getUpdatedAt());
         return response;
+    }
+
+    private Order orderForUser(String orderId, String userId) {
+        Order order = orderRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
+        if (!order.getUserId().equals(userId)) {
+            throw new UnauthorizedOrderAccessException("User not authorized to access this order");
+        }
+        return order;
     }
 }

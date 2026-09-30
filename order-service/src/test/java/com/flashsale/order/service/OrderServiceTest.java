@@ -8,6 +8,7 @@ import com.flashsale.order.dto.ReservationResponse;
 import com.flashsale.order.exception.IdempotencyConflictException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
+import com.flashsale.order.outbox.OrderOutboxService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +33,7 @@ class OrderServiceTest {
     @Mock private IdempotencyRepository idempotencyRepository;
     @Mock private ReservationServiceClient reservationServiceClient;
     @Mock private CatalogServiceClient catalogServiceClient;
+    @Mock private OrderOutboxService orderOutboxService;
     @InjectMocks private OrderService orderService;
 
     @Test
@@ -53,6 +55,7 @@ class OrderServiceTest {
         ArgumentCaptor<Order> order = ArgumentCaptor.forClass(Order.class);
         verify(orderRepository).insert(order.capture());
         assertEquals("reservation-1", order.getValue().getReservationId());
+        verify(orderOutboxService).appendCreated(order.getValue());
     }
 
     @Test
