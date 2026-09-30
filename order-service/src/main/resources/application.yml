@@ -7,6 +7,19 @@ spring:
   data:
     mongodb:
       uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/order_db?replicaSet=rs0
+      auto-index-creation: true
+
+reservation:
+  service:
+    url: ${RESERVATION_SERVICE_URL:http://localhost:8083}
+
+catalog:
+  service:
+    url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:flash-sale-engine-secret-key-change-in-production}
 
 # Logging
 logging:

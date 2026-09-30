@@ -5,7 +5,9 @@ import com.flashsale.order.dto.OrderResponse;
 import com.flashsale.order.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.security.Principal;
 import java.util.List;
@@ -13,6 +15,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/orders")
 @RequiredArgsConstructor
+@Validated
 public class OrderController {
 
     private final OrderService orderService;
@@ -20,9 +23,9 @@ public class OrderController {
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(
             Principal principal,
-            @RequestBody OrderRequest request) {
-        String userId = principal.getName(); // assuming principal is userId
-        OrderResponse response = orderService.createOrder(userId, request);
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody OrderRequest request) {
+        OrderResponse response = orderService.createOrder(principal.getName(), idempotencyKey, request);
         return ResponseEntity.ok(response);
     }
 

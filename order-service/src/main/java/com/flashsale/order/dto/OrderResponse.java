@@ -1,6 +1,7 @@
 package com.flashsale.order.dto;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 
 /**
  * Response DTO for order.
@@ -13,8 +14,10 @@ public class OrderResponse {
     private String eventId;
     private String ticketTypeId;
     private int quantity;
-    private double amount;
+    private BigDecimal unitPrice;
+    private BigDecimal totalAmount;
     private String status;
+    private String paymentStatus;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -67,12 +70,20 @@ public class OrderResponse {
         this.quantity = quantity;
     }
 
-    public double getAmount() {
-        return amount;
+    public BigDecimal getUnitPrice() {
+        return unitPrice;
     }
 
-    public void setAmount(double amount) {
-        this.amount = amount;
+    public void setUnitPrice(BigDecimal unitPrice) {
+        this.unitPrice = unitPrice;
+    }
+
+    public BigDecimal getTotalAmount() {
+        return totalAmount;
+    }
+
+    public void setTotalAmount(BigDecimal totalAmount) {
+        this.totalAmount = totalAmount;
     }
 
     public String getStatus() {
@@ -81,6 +92,14 @@ public class OrderResponse {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getPaymentStatus() {
+        return paymentStatus;
+    }
+
+    public void setPaymentStatus(String paymentStatus) {
+        this.paymentStatus = paymentStatus;
     }
 
     public Instant getCreatedAt() {

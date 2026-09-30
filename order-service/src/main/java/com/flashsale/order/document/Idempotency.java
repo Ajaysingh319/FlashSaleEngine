@@ -3,6 +3,7 @@ package com.flashsale.order.document;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 
 import java.time.Instant;
 
@@ -10,6 +11,7 @@ import java.time.Instant;
  * Idempotency record to prevent duplicate order creation.
  */
 @Document(collection = "idempotency")
+@CompoundIndex(name = "user_idempotency_key_unique", def = "{'user_id': 1, 'idempotency_key': 1}", unique = true)
 public class Idempotency {
 
     @Id
