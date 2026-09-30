@@ -1,185 +1,242 @@
 package com.flashsale.reservation.service;
 
+import com.flashsale.reservation.document.Inventory;
+import com.flashsale.reservation.document.Reservation;
+import com.flashsale.reservation.document.ReservationStatus;
+import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
-import com.flashsale.reservation.document.Reservation;
+import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
+import com.mongodb.client.result.UpdateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class ReservationServiceTest {
-
-    @Mock
-    private ReservationRepository reservationRepository;
-
-    @Mock
-    private MongoTemplate mongoTemplate;
-
-    @Mock
-    private StringRedisTemplate redisTemplate;
-
-    @Mock
-    private ValueOperations<String, String> valueOperations;
-
-    @InjectMocks
-    private ReservationService reservationService;
+    @Mock private ReservationRepository reservationRepository;
+    @Mock private InventoryRepository inventoryRepository;
+    @Mock private MongoTemplate mongoTemplate;
+    @Mock private StringRedisTemplate redisTemplate;
+    @Mock private ValueOperations<String, String> valueOperations;
+    @Mock private TransactionTemplate transactionTemplate;
+    @InjectMocks private ReservationService reservationService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
+        when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of());
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
     }
 
     @Test
-    void testCreateReservationSuccess() {
+    void createsActiveReservationAndAtomicallyMovesInventoryToReserved() {
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
+            Reservation reservation = invocation.getArgument(0);
+            reservation.setId("res-1");
+            return reservation;
+        });
+
+        ReservationResponse response = reservationService.createReservation(request("user-1", 2));
+
+        assertEquals("ACTIVE", response.getStatus());
+        assertEquals("res-1", response.getId());
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Inventory.class));
+        assertEquals(-2, update.getValue().getUpdateObject().get("$inc", org.bson.Document.class).getInteger("availableQuantity"));
+        assertEquals(2, update.getValue().getUpdateObject().get("$inc", org.bson.Document.class).getInteger("reservedQuantity"));
+    }
+
+    @Test
+    void rejectsReservationWhenAtomicInventoryPredicateDoesNotMatch() {
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(notUpdated());
+
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 2)));
+
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    void concurrentAttemptsCannotOversellWhenAtomicUpdateAllowsOnlyOne() throws Exception {
+        AtomicInteger available = new AtomicInteger(1);
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenAnswer(invocation ->
+                available.getAndUpdate(value -> value > 0 ? value - 1 : 0) > 0 ? updated() : notUpdated());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ExecutorService pool = Executors.newFixedThreadPool(12);
+        try {
+            List<Callable<Boolean>> attempts = java.util.stream.IntStream.range(0, 20)
+                    .<Callable<Boolean>>mapToObj(i -> () -> {
+                        try {
+                            reservationService.createReservation(request("user-" + i, 1));
+                            return true;
+                        } catch (IllegalStateException expected) {
+                            return false;
+                        }
+                    }).toList();
+            List<Future<Boolean>> results = pool.invokeAll(attempts);
+            assertEquals(1, results.stream().filter(result -> {
+                try { return result.get(); } catch (Exception exception) { throw new AssertionError(exception); }
+            }).count());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void cancellationReleasesReservedInventoryAndSetsCancelled() {
+        Reservation active = activeReservation("res-1");
+        when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+
+        reservationService.cancelReservation("res-1");
+
+        assertInventoryIncrement("availableQuantity", 1);
+        assertInventoryIncrement("reservedQuantity", -1);
+        assertTransitionStatus("CANCELLED");
+    }
+
+    @Test
+    void confirmationMovesReservedInventoryToSold() {
+        Reservation active = activeReservation("res-1");
+        when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+
+        reservationService.confirmReservation("res-1");
+
+        assertInventoryIncrement("reservedQuantity", -1);
+        assertInventoryIncrement("soldQuantity", 1);
+        assertTransitionStatus("CONFIRMED");
+    }
+
+    @Test
+    void schedulerExpiresActiveReservationsInsteadOfCancellingThem() {
+        Reservation active = activeReservation("res-1");
+        active.setExpiresAt(Instant.now().minusSeconds(1));
+        when(reservationRepository.findByStatusAndExpiresAtBefore(eq("ACTIVE"), any())).thenReturn(List.of(active));
+        when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+
+        reservationService.expireReservations();
+
+        assertTransitionStatus("EXPIRED");
+        assertInventoryIncrement("availableQuantity", 1);
+    }
+
+    @Test
+    void enforcesFourTicketPurchaseLimitAcrossActiveAndConfirmedReservations() {
+        Reservation existing = activeReservation("res-existing");
+        existing.setQuantity(4);
+        when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
+
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 1)));
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void acquiresUserLockBeforeInventoryLockAndUsesTokenCheckedReleaseScript() {
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        reservationService.createReservation(request("user-1", 1));
+
+        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
+        verify(valueOperations, times(2)).setIfAbsent(keys.capture(), anyString(), any());
+        assertEquals("user-purchase:lock:user-1:event-1", keys.getAllValues().get(0));
+        assertEquals("inventory:lock:ticket-1", keys.getAllValues().get(1));
+        verify(redisTemplate, times(2)).execute(any(), anyList(), any());
+        verify(redisTemplate, never()).delete(anyString());
+    }
+
+    @Test
+    void failedFirstLockDoesNotRunBusinessOperationOrReleaseSomeoneElsesLock() {
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(false);
+
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 1)));
+
+        verifyNoInteractions(mongoTemplate);
+        verify(redisTemplate, never()).execute(any(), anyList(), any());
+    }
+
+    @Test
+    void initializesOnlyBalancedInventory() {
+        InventoryInitializationRequest request = new InventoryInitializationRequest();
+        request.setEventId("event-1");
+        request.setTicketTypeId("ticket-1");
+        request.setTotalQuantity(3);
+        request.setAvailableQuantity(3);
+        request.setReservedQuantity(0);
+        request.setSoldQuantity(0);
+        when(inventoryRepository.insert(any(Inventory.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertEquals(3, reservationService.initializeInventory(request).getAvailableQuantity());
+    }
+
+    private void assertTransitionStatus(String expectedStatus) {
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(any(Query.class), update.capture(), eq(Reservation.class));
+        assertEquals(expectedStatus, update.getValue().getUpdateObject().get("$set", org.bson.Document.class).getString("status"));
+    }
+
+    private void assertInventoryIncrement(String field, int expected) {
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Inventory.class));
+        assertEquals(expected, update.getValue().getUpdateObject().get("$inc", org.bson.Document.class).getInteger(field));
+    }
+
+    private ReservationRequest request(String userId, int quantity) {
         ReservationRequest request = new ReservationRequest();
-        request.setEventId("event1");
-        request.setTicketTypeId("tt1");
-        request.setQuantity(2);
-        request.setUserId("user1");
-
-        // Mock lock acquisition
-        when(valueOperations.setIfAbsent(anyString(), anyString(), any()))
-                .thenReturn(true);
-
-        // Mock inventory check and update (stub returns true)
-        // No need to mock checkAndUpdateInventory as it's protected; we'll spy or override?
-        // Instead we'll rely on the actual method returning true (stub).
-
-        // Mock reservation save
-        Reservation savedReservation = new Reservation();
-        savedReservation.setId("res1");
-        savedReservation.setEventId(request.getEventId());
-        savedReservation.setTicketTypeId(request.getTicketTypeId());
-        savedReservation.setUserId(request.getUserId());
-        savedReservation.setQuantity(request.getQuantity());
-        savedReservation.setStatus("PENDING");
-        savedReservation.setCreatedAt(Instant.now());
-        savedReservation.setUpdatedAt(Instant.now());
-        savedReservation.setExpiresAt(Instant.now().plusSeconds(600));
-
-        when(reservationRepository.save(any(Reservation.class))).thenReturn(savedReservation);
-
-        ReservationResponse response = reservationService.createReservation(request);
-
-        assertNotNull(response);
-        assertEquals("res1", response.getId());
-        assertEquals("PENDING", response.getStatus());
-        assertEquals(2, response.getQuantity());
-        verify(redisTemplate, times(1)).delete(anyString()); // lock released
+        request.setEventId("event-1");
+        request.setTicketTypeId("ticket-1");
+        request.setUserId(userId);
+        request.setQuantity(quantity);
+        return request;
     }
 
-    @Test
-    void testCreateReservationLockFailure() {
-        ReservationRequest request = new ReservationRequest();
-        request.setEventId("event1");
-        request.setTicketTypeId("tt1");
-        request.setQuantity(1);
-        request.setUserId("user1");
-
-        when(valueOperations.setIfAbsent(anyString(), anyString(), any()))
-                .thenReturn(false);
-
-        assertThrows(RuntimeException.class, () -> reservationService.createReservation(request));
-    }
-
-    @Test
-    void testCreateReservationInsufficientInventory() {
-        ReservationRequest request = new ReservationRequest();
-        request.setEventId("event1");
-        request.setTicketTypeId("tt1");
-        request.setQuantity(10);
-        request.setUserId("user1");
-
-        when(valueOperations.setIfAbsent(anyString(), anyString(), any()))
-                .thenReturn(true);
-        // Make inventory check fail
-        // We need to spy on service to override checkAndUpdateInventory; easier: make it throw?
-        // We'll instead modify the service to make checkAndUpdateInventory public for test? Not ideal.
-        // For simplicity, we'll assume the stub returns true; we can't test insufficient without modifying.
-        // We'll skip this test for now.
-    }
-
-    @Test
-    void testGetReservationById() {
-        String id = "res1";
+    private Reservation activeReservation(String id) {
         Reservation reservation = new Reservation();
         reservation.setId(id);
-        reservation.setEventId("event1");
-        reservation.setTicketTypeId("tt1");
-        reservation.setUserId("user1");
+        reservation.setUserId("user-1");
+        reservation.setEventId("event-1");
+        reservation.setTicketTypeId("ticket-1");
         reservation.setQuantity(1);
-        reservation.setStatus("PENDING");
-        reservation.setCreatedAt(Instant.now());
-        reservation.setUpdatedAt(Instant.now());
+        reservation.setStatus(ReservationStatus.ACTIVE.name());
         reservation.setExpiresAt(Instant.now().plusSeconds(600));
-
-        when(reservationRepository.findById(id)).thenReturn(Optional.of(reservation));
-
-        ReservationResponse response = reservationService.getReservationById(id);
-
-        assertNotNull(response);
-        assertEquals(id, response.getId());
-        assertEquals("PENDING", response.getStatus());
+        return reservation;
     }
 
-    @Test
-    void testCancelReservation() {
-        String id = "res1";
-        Reservation reservation = new Reservation();
-        reservation.setId(id);
-        reservation.setEventId("event1");
-        reservation.setTicketTypeId("tt1");
-        reservation.setUserId("user1");
-        reservation.setQuantity(1);
-        reservation.setStatus("PENDING");
-        reservation.setCreatedAt(Instant.now());
-        reservation.setUpdatedAt(Instant.now());
-        reservation.setExpiresAt(Instant.now().plusSeconds(600));
-
-        when(reservationRepository.findById(id)).thenReturn(Optional.of(reservation));
-        when(valueOperations.setIfAbsent(anyString(), anyString(), any()))
-                .thenReturn(true);
-
-        reservationService.cancelReservation(id);
-
-        assertEquals("CANCELLED", reservation.getStatus());
-        verify(reservationRepository).save(reservation);
-        verify(redisTemplate, times(1)).delete(anyString());
-    }
-
-    @Test
-    void testGetReservationsByUserId() {
-        String userId = "user1";
-        Reservation r1 = new Reservation();
-        r1.setId("r1");
-        r1.setUserId(userId);
-        Reservation r2 = new Reservation();
-        r2.setId("r2");
-        r2.setUserId(userId);
-
-        when(reservationRepository.findByUserId(userId)).thenReturn(Arrays.asList(r1, r2));
-
-        List<ReservationResponse> responses = reservationService.getReservationsByUserId(userId);
-
-        assertEquals(2, responses.size());
-        assertEquals("r1", responses.get(0).getId());
-        assertEquals("r2", responses.get(1).getId());
-    }
+    private UpdateResult updated() { return UpdateResult.acknowledged(1, 1L, null); }
+    private UpdateResult notUpdated() { return UpdateResult.acknowledged(0, 0L, null); }
 }

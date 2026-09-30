@@ -5,10 +5,12 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
+import java.time.Instant;
+import java.util.Collection;
 
 @Repository
 public interface ReservationRepository extends MongoRepository<Reservation, String> {
     List<Reservation> findByUserId(String userId);
-    Optional<Reservation> findByIdAndStatus(String id, String status);
+    List<Reservation> findByUserIdAndEventIdAndStatusIn(String userId, String eventId, Collection<String> statuses);
+    List<Reservation> findByStatusAndExpiresAtBefore(String status, Instant expiresAt);
 }
