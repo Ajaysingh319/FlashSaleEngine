@@ -7,6 +7,30 @@ spring:
   data:
     mongodb:
       uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/payment_db?replicaSet=rs0
+      auto-index-creation: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${PAYMENT_KAFKA_CONSUMER_GROUP:payment-service}
+      auto-offset-reset: earliest
+      properties:
+        isolation.level: read_committed
+    producer:
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+
+payment:
+  kafka:
+    consumer-group: ${PAYMENT_KAFKA_CONSUMER_GROUP:payment-service}
+    outbox-publish-interval: ${PAYMENT_OUTBOX_PUBLISH_INTERVAL:5000}
+    topics:
+      # Defaults to Order's current published topic; deployments may map this to payment.requested.
+      requested: ${PAYMENT_REQUESTED_TOPIC:order.created}
+      completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}
+      failed: ${PAYMENT_FAILED_TOPIC:payment.failed}
 
 # Logging
 logging:
