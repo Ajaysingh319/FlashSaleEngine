@@ -1,6 +1,8 @@
 package com.flashsale.order.service;
 
 import com.flashsale.order.dto.ReservationResponse;
+import com.flashsale.order.dto.ReservationLifecycleRequest;
+import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.exception.ReservationNotFoundException;
 import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +43,42 @@ public class ReservationServiceClient {
             return response.getBody();
         } catch (HttpClientErrorException.NotFound exception) {
             throw new ReservationNotFoundException("Reservation not found with id: " + reservationId);
+        } catch (HttpClientErrorException exception) {
+            throw new ReservationServiceUnavailableException("Reservation service client error: " + exception.getStatusCode());
+        } catch (ResourceAccessException exception) {
+            throw new ReservationServiceUnavailableException("Cannot reach reservation service: " + exception.getMessage());
+        } catch (RestClientException exception) {
+            throw new ReservationServiceUnavailableException("Reservation service request failed: " + exception.getMessage());
+        }
+    }
+
+    public ReservationResponse confirmReservation(String reservationId, String orderId, String userId) {
+        return transition(reservationId, "/confirm", orderId, userId, "CONFIRMED");
+    }
+
+    public ReservationResponse cancelAfterPaymentFailure(String reservationId, String orderId, String userId) {
+        return transition(reservationId, "/cancel-after-payment-failure", orderId, userId, "CANCELLED");
+    }
+
+    private ReservationResponse transition(String reservationId, String path, String orderId, String userId,
+                                           String expectedStatus) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(internalJwtTokenProvider.token());
+        try {
+            ResponseEntity<ReservationResponse> response = restTemplate.exchange(
+                    reservationServiceUrl + "/internal/v1/reservations/{id}" + path, HttpMethod.POST,
+                    new HttpEntity<>(new ReservationLifecycleRequest(orderId, userId), headers),
+                    ReservationResponse.class, reservationId);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null
+                    || !reservationId.equals(response.getBody().getReservationId())
+                    || !expectedStatus.equals(response.getBody().getStatus())) {
+                throw new ReservationLifecycleConflictException("Reservation did not reach " + expectedStatus);
+            }
+            return response.getBody();
+        } catch (HttpClientErrorException.NotFound exception) {
+            throw new ReservationNotFoundException("Reservation not found with id: " + reservationId);
+        } catch (HttpClientErrorException.Conflict | HttpClientErrorException.Forbidden exception) {
+            throw new ReservationLifecycleConflictException("Reservation lifecycle transition was rejected: " + exception.getStatusCode());
         } catch (HttpClientErrorException exception) {
             throw new ReservationServiceUnavailableException("Reservation service client error: " + exception.getStatusCode());
         } catch (ResourceAccessException exception) {

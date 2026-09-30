@@ -157,6 +157,11 @@ public class OrderService {
         }
 
         boolean succeeded = "payment.completed".equals(event.eventType());
+        if (succeeded) {
+            reservationServiceClient.confirmReservation(order.getReservationId(), order.getOrderId(), order.getUserId());
+        } else {
+            reservationServiceClient.cancelAfterPaymentFailure(order.getReservationId(), order.getOrderId(), order.getUserId());
+        }
         order.applyPaymentResult(result.paymentId(), succeeded, Instant.now());
         orderRepository.save(order);
         if (succeeded) orderOutboxService.appendConfirmed(order); else orderOutboxService.appendPaymentFailed(order);

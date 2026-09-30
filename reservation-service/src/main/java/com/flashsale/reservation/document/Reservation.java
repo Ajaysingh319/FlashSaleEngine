@@ -25,6 +25,7 @@ public class Reservation {
     private String ticketTypeId;
     @Indexed
     private String userId;
+    private String orderId;
     private Integer quantity;
     private String status; // ACTIVE, CONFIRMED, CANCELLED, EXPIRED
     private Instant createdAt;

@@ -181,6 +181,16 @@ public class ReservationService {
         return mapToResponse(getReservation(id));
     }
 
+    /** Idempotent internal confirmation for the Order that owns this reservation. */
+    public ReservationResponse confirmReservationForOrder(String id, String orderId, String userId) {
+        return transitionReservationForOrder(id, orderId, userId, ReservationStatus.CONFIRMED);
+    }
+
+    /** Idempotent internal release when the Order's payment has failed. */
+    public ReservationResponse cancelReservationAfterPaymentFailure(String id, String orderId, String userId) {
+        return transitionReservationForOrder(id, orderId, userId, ReservationStatus.CANCELLED);
+    }
+
     public void confirmReservation(String id) { transitionReservation(id, ReservationStatus.CONFIRMED); }
     public void cancelReservation(String id, String userId) {
         Reservation reservation = getReservation(id);
@@ -190,6 +200,41 @@ public class ReservationService {
         transitionReservation(reservation, ReservationStatus.CANCELLED);
     }
     public void expireReservation(String id) { transitionReservation(id, ReservationStatus.EXPIRED); }
+
+    private ReservationResponse transitionReservationForOrder(String id, String orderId, String userId,
+                                                               ReservationStatus targetStatus) {
+        if (orderId == null || orderId.isBlank() || userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("orderId and userId are required");
+        }
+        Reservation current = getReservation(id);
+        if (!current.getUserId().equals(userId)) throw new ReservationOwnershipException();
+        OrderTransitionResult result = withLocks(userId, current.getEventId(), current.getTicketTypeId(), () -> {
+            Reservation latest = getReservation(id);
+            if (!latest.getUserId().equals(userId)) throw new ReservationOwnershipException();
+            ensureOrderAssociation(latest, orderId);
+            if (targetStatus.name().equals(latest.getStatus())) {
+                if (!orderId.equals(latest.getOrderId())) {
+                    throw new InvalidReservationStateException("Reservation is not associated with this order");
+                }
+                return new OrderTransitionResult(mapToResponse(latest), false);
+            }
+            if (!ReservationStatus.ACTIVE.name().equals(latest.getStatus())) {
+                throw new InvalidReservationStateException("Only ACTIVE reservations can be " + targetStatus.name().toLowerCase());
+            }
+            Instant now = Instant.now();
+            if (!latest.getExpiresAt().isAfter(now)) {
+                applyTransition(latest, ReservationStatus.EXPIRED, now);
+                return new OrderTransitionResult(null, true);
+            }
+            Reservation transitioned = applyOrderTransition(latest, orderId, targetStatus, now);
+            if (transitioned == null) {
+                throw new InvalidReservationStateException("Reservation state changed while processing the order");
+            }
+            return new OrderTransitionResult(mapToResponse(transitioned), false);
+        });
+        if (result.expired()) throw new ReservationExpiredException();
+        return result.response();
+    }
 
     private void transitionReservation(String id, ReservationStatus targetStatus) {
         transitionReservation(getReservation(id), targetStatus);
@@ -233,6 +278,28 @@ public class ReservationService {
             releaseInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
         }
         reservationOutboxService.append(eventTopic(targetStatus), eventType(targetStatus), transitioned);
+    }
+
+    private Reservation applyOrderTransition(Reservation latest, String orderId, ReservationStatus targetStatus, Instant now) {
+        Query activeReservation = new Query(Criteria.where("_id").is(latest.getId())
+                .and("status").is(ReservationStatus.ACTIVE.name()));
+        Update statusUpdate = new Update().set("status", targetStatus.name()).set("orderId", orderId).set("updatedAt", now);
+        Reservation transitioned = mongoTemplate.findAndModify(activeReservation, statusUpdate,
+                FindAndModifyOptions.options().returnNew(true), Reservation.class);
+        if (transitioned == null) return null;
+        if (targetStatus == ReservationStatus.CONFIRMED) {
+            confirmInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
+        } else {
+            releaseInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
+        }
+        reservationOutboxService.append(eventTopic(targetStatus), eventType(targetStatus), transitioned);
+        return transitioned;
+    }
+
+    private void ensureOrderAssociation(Reservation reservation, String orderId) {
+        if (reservation.getOrderId() != null && !reservation.getOrderId().equals(orderId)) {
+            throw new InvalidReservationStateException("Reservation is already associated with another order");
+        }
     }
 
     private Reservation getReservation(String id) {
@@ -325,4 +392,5 @@ public class ReservationService {
 
     @FunctionalInterface private interface LockedOperation<T> { T execute(); }
     private record LockHandle(String key, String token) { }
+    private record OrderTransitionResult(ReservationResponse response, boolean expired) { }
 }
