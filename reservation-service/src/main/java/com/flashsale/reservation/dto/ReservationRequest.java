@@ -22,6 +22,4 @@ public class ReservationRequest {
     @Positive
     private Integer quantity;
 
-    @NotBlank
-    private String userId;
 }

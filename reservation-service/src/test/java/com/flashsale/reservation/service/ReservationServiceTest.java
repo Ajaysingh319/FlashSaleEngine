@@ -3,11 +3,14 @@ package com.flashsale.reservation.service;
 import com.flashsale.reservation.document.Inventory;
 import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationStatus;
+import com.flashsale.reservation.document.ReservationIdempotency;
 import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
+import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
+import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
 import com.mongodb.client.result.UpdateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +42,7 @@ import static org.mockito.Mockito.*;
 class ReservationServiceTest {
     @Mock private ReservationRepository reservationRepository;
     @Mock private InventoryRepository inventoryRepository;
+    @Mock private ReservationIdempotencyRepository idempotencyRepository;
     @Mock private MongoTemplate mongoTemplate;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
@@ -51,6 +55,7 @@ class ReservationServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
         when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of());
+        when(idempotencyRepository.findByUserIdAndIdempotencyKey(anyString(), anyString())).thenReturn(Optional.empty());
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
@@ -66,7 +71,7 @@ class ReservationServiceTest {
             return reservation;
         });
 
-        ReservationResponse response = reservationService.createReservation(request("user-1", 2));
+        ReservationResponse response = reservationService.createReservation("key-1", request("user-1", 2));
 
         assertEquals("ACTIVE", response.getStatus());
         assertEquals("res-1", response.getId());
@@ -80,7 +85,7 @@ class ReservationServiceTest {
     void rejectsReservationWhenAtomicInventoryPredicateDoesNotMatch() {
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(notUpdated());
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 2)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 2)));
 
         verify(reservationRepository, never()).save(any());
     }
@@ -97,7 +102,7 @@ class ReservationServiceTest {
             List<Callable<Boolean>> attempts = java.util.stream.IntStream.range(0, 20)
                     .<Callable<Boolean>>mapToObj(i -> () -> {
                         try {
-                            reservationService.createReservation(request("user-" + i, 1));
+                            reservationService.createReservation("key-" + i, request("user-" + i, 1));
                             return true;
                         } catch (IllegalStateException expected) {
                             return false;
@@ -161,7 +166,7 @@ class ReservationServiceTest {
         existing.setQuantity(4);
         when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 1)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 1)));
         verifyNoInteractions(mongoTemplate);
     }
 
@@ -170,7 +175,7 @@ class ReservationServiceTest {
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        reservationService.createReservation(request("user-1", 1));
+        reservationService.createReservation("key-1", request("user-1", 1));
 
         ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
         verify(valueOperations, times(2)).setIfAbsent(keys.capture(), anyString(), any());
@@ -184,7 +189,7 @@ class ReservationServiceTest {
     void failedFirstLockDoesNotRunBusinessOperationOrReleaseSomeoneElsesLock() {
         when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(false);
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation(request("user-1", 1)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 1)));
 
         verifyNoInteractions(mongoTemplate);
         verify(redisTemplate, never()).execute(any(), anyList(), any());
@@ -202,6 +207,48 @@ class ReservationServiceTest {
         when(inventoryRepository.insert(any(Inventory.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         assertEquals(3, reservationService.initializeInventory(request).getAvailableQuantity());
+    }
+
+    @Test
+    void storesAFingerprintAndReservationReferenceForTheFirstIdempotentRequest() {
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
+            Reservation reservation = invocation.getArgument(0);
+            reservation.setId("res-1");
+            return reservation;
+        });
+
+        reservationService.createReservation("key-1", request("user-1", 1));
+
+        ArgumentCaptor<ReservationIdempotency> record = ArgumentCaptor.forClass(ReservationIdempotency.class);
+        verify(idempotencyRepository).insert(record.capture());
+        assertEquals("user-1", record.getValue().getUserId());
+        assertEquals("key-1", record.getValue().getIdempotencyKey());
+        assertEquals("res-1", record.getValue().getReservationId());
+        assertNotNull(record.getValue().getRequestFingerprint());
+    }
+
+    @Test
+    void replaysTheOriginalReservationForTheSameUserKeyAndRequest() {
+        ReservationIdempotency record = idempotency("user-1", "key-1", request("user-1", 1), "res-1");
+        Reservation reservation = activeReservation("res-1");
+        when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.of(record));
+        when(reservationRepository.findById("res-1")).thenReturn(Optional.of(reservation));
+
+        ReservationResponse response = reservationService.createReservation("key-1", request("user-1", 1));
+
+        assertEquals("res-1", response.getId());
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void rejectsAReusedKeyWhenTheRequestFingerprintDiffers() {
+        ReservationIdempotency record = idempotency("user-1", "key-1", request("user-1", 1), "res-1");
+        when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.of(record));
+
+        assertThrows(IdempotencyConflictException.class,
+                () -> reservationService.createReservation("key-1", request("user-1", 2)));
+        verifyNoInteractions(mongoTemplate);
     }
 
     private void assertTransitionStatus(String expectedStatus) {
@@ -235,6 +282,25 @@ class ReservationServiceTest {
         reservation.setStatus(ReservationStatus.ACTIVE.name());
         reservation.setExpiresAt(Instant.now().plusSeconds(600));
         return reservation;
+    }
+
+    private ReservationIdempotency idempotency(String userId, String key, ReservationRequest request, String reservationId) {
+        ReservationIdempotency record = new ReservationIdempotency();
+        record.setUserId(userId);
+        record.setIdempotencyKey(key);
+        record.setReservationId(reservationId);
+        record.setRequestFingerprint(fingerprint(request));
+        return record;
+    }
+
+    private String fingerprint(ReservationRequest request) {
+        try {
+            String canonical = request.getEventId() + "\n" + request.getTicketTypeId() + "\n" + request.getQuantity();
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     private UpdateResult updated() { return UpdateResult.acknowledged(1, 1L, null); }

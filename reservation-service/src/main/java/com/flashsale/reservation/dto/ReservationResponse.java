@@ -10,8 +10,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ReservationResponse {
-
-    private String id;
+    private String reservationId;
     private String eventId;
     private String ticketTypeId;
     private String userId;

@@ -1,13 +1,16 @@
 package com.flashsale.reservation.service;
 
 import com.flashsale.reservation.document.Inventory;
+import com.flashsale.reservation.document.ReservationIdempotency;
 import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationStatus;
 import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
+import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.repository.InventoryRepository;
+import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
 import com.mongodb.client.result.UpdateResult;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +28,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Owns reservation state and the authoritative reservation inventory. */
@@ -42,6 +49,7 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final InventoryRepository inventoryRepository;
+    private final ReservationIdempotencyRepository idempotencyRepository;
     private final MongoTemplate mongoTemplate;
     private final StringRedisTemplate redisTemplate;
     private final TransactionTemplate transactionTemplate;
@@ -71,8 +79,24 @@ public class ReservationService {
                 .orElseThrow(() -> new IllegalArgumentException("Inventory not found"));
     }
 
-    public ReservationResponse createReservation(ReservationRequest request) {
-        return withLocks(request.getUserId(), request.getEventId(), request.getTicketTypeId(), () -> {
+    public ReservationResponse createReservation(String idempotencyKey, ReservationRequest request) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required");
+        }
+        String requestFingerprint = requestFingerprint(request);
+        Optional<ReservationIdempotency> existing = idempotencyRepository
+                .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey);
+        if (existing.isPresent()) {
+            return replayOrReject(existing.get(), requestFingerprint);
+        }
+
+        try {
+            return withLocks(request.getUserId(), request.getEventId(), request.getTicketTypeId(), () -> {
+            Optional<ReservationIdempotency> idempotencyInsideTransaction = idempotencyRepository
+                    .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey);
+            if (idempotencyInsideTransaction.isPresent()) {
+                return replayOrReject(idempotencyInsideTransaction.get(), requestFingerprint);
+            }
             long alreadyAllocated = reservationRepository.findByUserIdAndEventIdAndStatusIn(request.getUserId(), request.getEventId(),
                             List.of(ReservationStatus.ACTIVE.name(), ReservationStatus.CONFIRMED.name()))
                     .stream().mapToLong(Reservation::getQuantity).sum();
@@ -92,8 +116,42 @@ public class ReservationService {
             reservation.setCreatedAt(now);
             reservation.setUpdatedAt(now);
             reservation.setExpiresAt(now.plusSeconds(600));
-            return mapToResponse(reservationRepository.save(reservation));
-        });
+            Reservation saved = reservationRepository.save(reservation);
+
+            ReservationIdempotency idempotency = new ReservationIdempotency();
+            idempotency.setUserId(request.getUserId());
+            idempotency.setIdempotencyKey(idempotencyKey);
+            idempotency.setRequestFingerprint(requestFingerprint);
+            idempotency.setReservationId(saved.getId());
+            idempotency.setCreatedAt(now);
+            idempotencyRepository.insert(idempotency);
+            return mapToResponse(saved);
+            });
+        } catch (DuplicateKeyException exception) {
+            ReservationIdempotency persisted = idempotencyRepository
+                    .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey)
+                    .orElseThrow(() -> exception);
+            return replayOrReject(persisted, requestFingerprint);
+        }
+    }
+
+    private ReservationResponse replayOrReject(ReservationIdempotency idempotency, String requestFingerprint) {
+        if (!idempotency.getRequestFingerprint().equals(requestFingerprint)) {
+            throw new IdempotencyConflictException("Idempotency-Key was already used with a different reservation request");
+        }
+        Reservation reservation = reservationRepository.findById(idempotency.getReservationId())
+                .orElseThrow(() -> new IllegalStateException("Idempotency record refers to a missing reservation"));
+        return mapToResponse(reservation);
+    }
+
+    private String requestFingerprint(ReservationRequest request) {
+        String canonicalRequest = request.getEventId() + "\n" + request.getTicketTypeId() + "\n" + request.getQuantity();
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(canonicalRequest.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     public ReservationResponse getReservationById(String id) {

@@ -18,8 +18,10 @@ public class ReservationController {
     private final ReservationService reservationService;
 
     @PostMapping
-    public ResponseEntity<ReservationResponse> createReservation(@Valid @RequestBody ReservationRequest request) {
-        return ResponseEntity.ok(reservationService.createReservation(request));
+    public ResponseEntity<ReservationResponse> createReservation(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody ReservationRequest request) {
+        return ResponseEntity.ok(reservationService.createReservation(idempotencyKey, request));
     }
 
     @GetMapping("/{id}")
