@@ -8,6 +8,8 @@ import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.exception.InventoryUnavailableException;
+import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
@@ -88,7 +90,8 @@ class ReservationServiceTest {
     void rejectsReservationWhenAtomicInventoryPredicateDoesNotMatch() {
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(notUpdated());
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(2)));
+        assertThrows(InventoryUnavailableException.class,
+                () -> reservationService.createReservation("user-1", "key-1", request(2)));
 
         verify(reservationRepository, never()).save(any());
     }
@@ -102,19 +105,23 @@ class ReservationServiceTest {
 
         ExecutorService pool = Executors.newFixedThreadPool(12);
         try {
-            List<Callable<Boolean>> attempts = java.util.stream.IntStream.range(0, 20)
-                    .<Callable<Boolean>>mapToObj(i -> () -> {
+            List<Callable<ReservationAttempt>> attempts = java.util.stream.IntStream.range(0, 20)
+                    .<Callable<ReservationAttempt>>mapToObj(i -> () -> {
                         try {
                             reservationService.createReservation("user-" + i, "key-" + i, request(1));
-                            return true;
-                        } catch (IllegalStateException expected) {
-                            return false;
+                            return ReservationAttempt.RESERVED;
+                        } catch (InventoryUnavailableException expected) {
+                            return ReservationAttempt.INVENTORY_UNAVAILABLE;
                         }
                     }).toList();
-            List<Future<Boolean>> results = pool.invokeAll(attempts);
-            assertEquals(1, results.stream().filter(result -> {
+            List<Future<ReservationAttempt>> results = pool.invokeAll(attempts);
+            List<ReservationAttempt> outcomes = results.stream().map(result -> {
                 try { return result.get(); } catch (Exception exception) { throw new AssertionError(exception); }
-            }).count());
+            }).toList();
+
+            assertEquals(1, outcomes.stream().filter(outcome -> outcome == ReservationAttempt.RESERVED).count());
+            assertEquals(19, outcomes.stream().filter(outcome -> outcome == ReservationAttempt.INVENTORY_UNAVAILABLE).count());
+            assertEquals(0, available.get());
         } finally {
             pool.shutdownNow();
         }
@@ -169,7 +176,8 @@ class ReservationServiceTest {
         existing.setQuantity(4);
         when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(1)));
+        assertThrows(PurchaseLimitExceededException.class,
+                () -> reservationService.createReservation("user-1", "key-1", request(1)));
         verifyNoInteractions(mongoTemplate);
     }
 
@@ -307,4 +315,6 @@ class ReservationServiceTest {
 
     private UpdateResult updated() { return UpdateResult.acknowledged(1, 1L, null); }
     private UpdateResult notUpdated() { return UpdateResult.acknowledged(0, 0L, null); }
+
+    private enum ReservationAttempt { RESERVED, INVENTORY_UNAVAILABLE }
 }
