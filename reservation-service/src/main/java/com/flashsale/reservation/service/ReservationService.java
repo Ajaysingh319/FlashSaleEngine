@@ -9,6 +9,13 @@ import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.exception.InventoryUnavailableException;
+import com.flashsale.reservation.exception.InvalidReservationStateException;
+import com.flashsale.reservation.exception.PurchaseLimitExceededException;
+import com.flashsale.reservation.exception.ReservationExpiredException;
+import com.flashsale.reservation.exception.ReservationNotFoundException;
+import com.flashsale.reservation.exception.ReservationOwnershipException;
+import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
@@ -17,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
@@ -53,6 +61,7 @@ public class ReservationService {
     private final MongoTemplate mongoTemplate;
     private final StringRedisTemplate redisTemplate;
     private final TransactionTemplate transactionTemplate;
+    private final ReservationOutboxService reservationOutboxService;
 
     public InventoryResponse initializeInventory(InventoryInitializationRequest request) {
         if (request.getTotalQuantity() != request.getAvailableQuantity() + request.getReservedQuantity() + request.getSoldQuantity()) {
@@ -79,47 +88,48 @@ public class ReservationService {
                 .orElseThrow(() -> new IllegalArgumentException("Inventory not found"));
     }
 
-    public ReservationResponse createReservation(String idempotencyKey, ReservationRequest request) {
+    public ReservationResponse createReservation(String userId, String idempotencyKey, ReservationRequest request) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("Idempotency-Key is required");
         }
         String requestFingerprint = requestFingerprint(request);
         Optional<ReservationIdempotency> existing = idempotencyRepository
-                .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey);
+                .findByUserIdAndIdempotencyKey(userId, idempotencyKey);
         if (existing.isPresent()) {
             return replayOrReject(existing.get(), requestFingerprint);
         }
 
         try {
-            return withLocks(request.getUserId(), request.getEventId(), request.getTicketTypeId(), () -> {
+            return withLocks(userId, request.getEventId(), request.getTicketTypeId(), () -> {
             Optional<ReservationIdempotency> idempotencyInsideTransaction = idempotencyRepository
-                    .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey);
+                    .findByUserIdAndIdempotencyKey(userId, idempotencyKey);
             if (idempotencyInsideTransaction.isPresent()) {
                 return replayOrReject(idempotencyInsideTransaction.get(), requestFingerprint);
             }
-            long alreadyAllocated = reservationRepository.findByUserIdAndEventIdAndStatusIn(request.getUserId(), request.getEventId(),
+            long alreadyAllocated = reservationRepository.findByUserIdAndEventIdAndStatusIn(userId, request.getEventId(),
                             List.of(ReservationStatus.ACTIVE.name(), ReservationStatus.CONFIRMED.name()))
                     .stream().mapToLong(Reservation::getQuantity).sum();
             if (alreadyAllocated + request.getQuantity() > PURCHASE_LIMIT) {
-                throw new IllegalStateException("Purchase limit of " + PURCHASE_LIMIT + " tickets per event exceeded");
+                throw new PurchaseLimitExceededException(PURCHASE_LIMIT);
             }
             if (!reserveInventory(request.getEventId(), request.getTicketTypeId(), request.getQuantity())) {
-                throw new IllegalStateException("Insufficient inventory");
+                throw new InventoryUnavailableException();
             }
             Instant now = Instant.now();
             Reservation reservation = new Reservation();
             reservation.setEventId(request.getEventId());
             reservation.setTicketTypeId(request.getTicketTypeId());
-            reservation.setUserId(request.getUserId());
+            reservation.setUserId(userId);
             reservation.setQuantity(request.getQuantity());
             reservation.setStatus(ReservationStatus.ACTIVE.name());
             reservation.setCreatedAt(now);
             reservation.setUpdatedAt(now);
             reservation.setExpiresAt(now.plusSeconds(600));
             Reservation saved = reservationRepository.save(reservation);
+            reservationOutboxService.append("reservation.created", "RESERVATION_CREATED", saved);
 
             ReservationIdempotency idempotency = new ReservationIdempotency();
-            idempotency.setUserId(request.getUserId());
+            idempotency.setUserId(userId);
             idempotency.setIdempotencyKey(idempotencyKey);
             idempotency.setRequestFingerprint(requestFingerprint);
             idempotency.setReservationId(saved.getId());
@@ -129,7 +139,7 @@ public class ReservationService {
             });
         } catch (DuplicateKeyException exception) {
             ReservationIdempotency persisted = idempotencyRepository
-                    .findByUserIdAndIdempotencyKey(request.getUserId(), idempotencyKey)
+                    .findByUserIdAndIdempotencyKey(userId, idempotencyKey)
                     .orElseThrow(() -> exception);
             return replayOrReject(persisted, requestFingerprint);
         }
@@ -154,34 +164,87 @@ public class ReservationService {
         }
     }
 
-    public ReservationResponse getReservationById(String id) {
-        return reservationRepository.findById(id).map(this::mapToResponse)
-                .orElseThrow(() -> new IllegalArgumentException("Reservation not found"));
+    public ReservationResponse getReservationById(String id, String userId) {
+        Reservation reservation = getReservation(id);
+        if (!reservation.getUserId().equals(userId)) {
+            throw new ReservationOwnershipException();
+        }
+        return mapToResponse(reservation);
     }
 
     public List<ReservationResponse> getReservationsByUserId(String userId) {
         return reservationRepository.findByUserId(userId).stream().map(this::mapToResponse).toList();
     }
 
+    /** Used by trusted downstream services; public callers must use the ownership-checked method. */
+    public ReservationResponse getInternalReservationById(String id) {
+        return mapToResponse(getReservation(id));
+    }
+
     public void confirmReservation(String id) { transitionReservation(id, ReservationStatus.CONFIRMED); }
-    public void cancelReservation(String id) { transitionReservation(id, ReservationStatus.CANCELLED); }
+    public void cancelReservation(String id, String userId) {
+        Reservation reservation = getReservation(id);
+        if (!reservation.getUserId().equals(userId)) {
+            throw new ReservationOwnershipException();
+        }
+        transitionReservation(reservation, ReservationStatus.CANCELLED);
+    }
     public void expireReservation(String id) { transitionReservation(id, ReservationStatus.EXPIRED); }
 
     private void transitionReservation(String id, ReservationStatus targetStatus) {
-        Reservation current = reservationRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Reservation not found"));
-        withLocks(current.getUserId(), current.getEventId(), current.getTicketTypeId(), () -> {
-            Query activeReservation = new Query(Criteria.where("_id").is(id).and("status").is(ReservationStatus.ACTIVE.name()));
-            Update statusUpdate = new Update().set("status", targetStatus.name()).set("updatedAt", Instant.now());
-            Reservation transitioned = mongoTemplate.findAndModify(activeReservation, statusUpdate, Reservation.class);
-            if (transitioned == null) return null;
-            if (targetStatus == ReservationStatus.CONFIRMED) {
-                confirmInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
-            } else {
-                releaseInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
+        transitionReservation(getReservation(id), targetStatus);
+    }
+
+    private void transitionReservation(Reservation current, ReservationStatus targetStatus) {
+        boolean expiredBeforeRequestedTransition = Boolean.TRUE.equals(withLocks(
+                current.getUserId(), current.getEventId(), current.getTicketTypeId(), () -> {
+            Reservation latest = getReservation(current.getId());
+            if (!ReservationStatus.ACTIVE.name().equals(latest.getStatus())) {
+                if (targetStatus == ReservationStatus.EXPIRED) return null;
+                throw new InvalidReservationStateException("Only ACTIVE reservations can be " + targetStatus.name().toLowerCase());
             }
+            Instant now = Instant.now();
+            if (targetStatus != ReservationStatus.EXPIRED && !latest.getExpiresAt().isAfter(now)) {
+                applyTransition(latest, ReservationStatus.EXPIRED, now);
+                return true;
+            }
+            if (targetStatus == ReservationStatus.EXPIRED && latest.getExpiresAt().isAfter(now)) {
+                return null;
+            }
+            applyTransition(latest, targetStatus, now);
             return null;
-        });
+        }));
+        if (expiredBeforeRequestedTransition) {
+            throw new ReservationExpiredException();
+        }
+    }
+
+    private void applyTransition(Reservation latest, ReservationStatus targetStatus, Instant now) {
+        Query activeReservation = new Query(Criteria.where("_id").is(latest.getId()).and("status").is(ReservationStatus.ACTIVE.name()));
+        Update statusUpdate = new Update().set("status", targetStatus.name()).set("updatedAt", now);
+        Reservation transitioned = mongoTemplate.findAndModify(activeReservation, statusUpdate,
+                FindAndModifyOptions.options().returnNew(true), Reservation.class);
+        if (transitioned == null) {
+            return;
+        }
+        if (targetStatus == ReservationStatus.CONFIRMED) {
+            confirmInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
+        } else {
+            releaseInventory(transitioned.getEventId(), transitioned.getTicketTypeId(), transitioned.getQuantity());
+        }
+        reservationOutboxService.append(eventTopic(targetStatus), eventType(targetStatus), transitioned);
+    }
+
+    private Reservation getReservation(String id) {
+        return reservationRepository.findById(id).orElseThrow(() -> new ReservationNotFoundException(id));
+    }
+
+    private String eventTopic(ReservationStatus status) {
+        return "reservation." + status.name().toLowerCase();
+    }
+
+    private String eventType(ReservationStatus status) {
+        return "RESERVATION_" + status.name();
     }
 
     /** Atomic available -> reserved transition. */

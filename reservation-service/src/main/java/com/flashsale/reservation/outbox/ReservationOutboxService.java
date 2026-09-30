@@ -18,13 +18,13 @@ public class ReservationOutboxService {
     private final ReservationOutboxEventRepository outboxRepository;
     private final ObjectMapper objectMapper;
 
-    public void append(String eventType, Reservation reservation) {
+    public void append(String topic, String eventType, Reservation reservation) {
         Instant timestamp = Instant.now();
         ReservationOutboxEvent event = new ReservationOutboxEvent();
         event.setEventId(UUID.randomUUID().toString());
         event.setAggregateType("RESERVATION");
         event.setAggregateId(reservation.getId());
-        event.setTopic(eventType);
+        event.setTopic(topic);
         event.setEventType(eventType);
         event.setPayload(payload(reservation, event.getEventId(), eventType, timestamp));
         event.setCreatedAt(timestamp);
@@ -34,15 +34,20 @@ public class ReservationOutboxService {
 
     private String payload(Reservation reservation, String eventId, String eventType, Instant timestamp) {
         try {
-            return objectMapper.writeValueAsString(new ReservationLifecycleEvent(
-                    eventId, eventType, reservation.getId(), reservation.getEventId(), reservation.getTicketTypeId(),
-                    reservation.getUserId(), reservation.getQuantity(), reservation.getStatus(), timestamp));
+            return objectMapper.writeValueAsString(new ReservationEventEnvelope(
+                    eventId, eventType, timestamp, "RESERVATION", reservation.getId(),
+                    new ReservationLifecyclePayload(reservation.getId(), reservation.getEventId(), reservation.getTicketTypeId(),
+                            reservation.getUserId(), reservation.getQuantity(), reservation.getStatus(), reservation.getExpiresAt())));
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Could not serialize reservation lifecycle event", exception);
         }
     }
 
-    public record ReservationLifecycleEvent(
-            String eventId, String eventType, String reservationId, String eventIdValue,
-            String ticketTypeId, String userId, Integer quantity, String status, Instant timestamp) { }
+    public record ReservationEventEnvelope(
+            String eventId, String eventType, Instant timestamp, String aggregateType, String aggregateId,
+            ReservationLifecyclePayload payload) { }
+
+    public record ReservationLifecyclePayload(
+            String reservationId, String eventId, String ticketTypeId, String userId,
+            Integer quantity, String status, Instant expiresAt) { }
 }

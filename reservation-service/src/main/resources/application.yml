@@ -8,7 +8,15 @@ spring:
     mongodb:
       uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/reservation_db?replicaSet=rs0
       auto-index-creation: true
-  # Redis configuration will be added later when needed
+  kafka:
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:flash-sale-engine-secret-key-change-in-production}
 
 # Logging
 logging:

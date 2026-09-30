@@ -8,6 +8,7 @@ import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
@@ -19,6 +20,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -47,6 +49,7 @@ class ReservationServiceTest {
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private TransactionTemplate transactionTemplate;
+    @Mock private ReservationOutboxService reservationOutboxService;
     @InjectMocks private ReservationService reservationService;
 
     @BeforeEach
@@ -71,10 +74,10 @@ class ReservationServiceTest {
             return reservation;
         });
 
-        ReservationResponse response = reservationService.createReservation("key-1", request("user-1", 2));
+        ReservationResponse response = reservationService.createReservation("user-1", "key-1", request(2));
 
         assertEquals("ACTIVE", response.getStatus());
-        assertEquals("res-1", response.getId());
+        assertEquals("res-1", response.getReservationId());
         ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
         verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Inventory.class));
         assertEquals(-2, update.getValue().getUpdateObject().get("$inc", org.bson.Document.class).getInteger("availableQuantity"));
@@ -85,7 +88,7 @@ class ReservationServiceTest {
     void rejectsReservationWhenAtomicInventoryPredicateDoesNotMatch() {
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(notUpdated());
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 2)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(2)));
 
         verify(reservationRepository, never()).save(any());
     }
@@ -102,7 +105,7 @@ class ReservationServiceTest {
             List<Callable<Boolean>> attempts = java.util.stream.IntStream.range(0, 20)
                     .<Callable<Boolean>>mapToObj(i -> () -> {
                         try {
-                            reservationService.createReservation("key-" + i, request("user-" + i, 1));
+                            reservationService.createReservation("user-" + i, "key-" + i, request(1));
                             return true;
                         } catch (IllegalStateException expected) {
                             return false;
@@ -121,10 +124,10 @@ class ReservationServiceTest {
     void cancellationReleasesReservedInventoryAndSetsCancelled() {
         Reservation active = activeReservation("res-1");
         when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
-        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Reservation.class))).thenReturn(active);
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
 
-        reservationService.cancelReservation("res-1");
+        reservationService.cancelReservation("res-1", "user-1");
 
         assertInventoryIncrement("availableQuantity", 1);
         assertInventoryIncrement("reservedQuantity", -1);
@@ -135,7 +138,7 @@ class ReservationServiceTest {
     void confirmationMovesReservedInventoryToSold() {
         Reservation active = activeReservation("res-1");
         when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
-        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Reservation.class))).thenReturn(active);
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
 
         reservationService.confirmReservation("res-1");
@@ -151,7 +154,7 @@ class ReservationServiceTest {
         active.setExpiresAt(Instant.now().minusSeconds(1));
         when(reservationRepository.findByStatusAndExpiresAtBefore(eq("ACTIVE"), any())).thenReturn(List.of(active));
         when(reservationRepository.findById("res-1")).thenReturn(Optional.of(active));
-        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), eq(Reservation.class))).thenReturn(active);
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Reservation.class))).thenReturn(active);
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
 
         reservationService.expireReservations();
@@ -166,7 +169,7 @@ class ReservationServiceTest {
         existing.setQuantity(4);
         when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 1)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(1)));
         verifyNoInteractions(mongoTemplate);
     }
 
@@ -175,7 +178,7 @@ class ReservationServiceTest {
         when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        reservationService.createReservation("key-1", request("user-1", 1));
+        reservationService.createReservation("user-1", "key-1", request(1));
 
         ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
         verify(valueOperations, times(2)).setIfAbsent(keys.capture(), anyString(), any());
@@ -189,7 +192,7 @@ class ReservationServiceTest {
     void failedFirstLockDoesNotRunBusinessOperationOrReleaseSomeoneElsesLock() {
         when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(false);
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("key-1", request("user-1", 1)));
+        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(1)));
 
         verifyNoInteractions(mongoTemplate);
         verify(redisTemplate, never()).execute(any(), anyList(), any());
@@ -218,7 +221,7 @@ class ReservationServiceTest {
             return reservation;
         });
 
-        reservationService.createReservation("key-1", request("user-1", 1));
+        reservationService.createReservation("user-1", "key-1", request(1));
 
         ArgumentCaptor<ReservationIdempotency> record = ArgumentCaptor.forClass(ReservationIdempotency.class);
         verify(idempotencyRepository).insert(record.capture());
@@ -230,30 +233,30 @@ class ReservationServiceTest {
 
     @Test
     void replaysTheOriginalReservationForTheSameUserKeyAndRequest() {
-        ReservationIdempotency record = idempotency("user-1", "key-1", request("user-1", 1), "res-1");
+        ReservationIdempotency record = idempotency("user-1", "key-1", request(1), "res-1");
         Reservation reservation = activeReservation("res-1");
         when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.of(record));
         when(reservationRepository.findById("res-1")).thenReturn(Optional.of(reservation));
 
-        ReservationResponse response = reservationService.createReservation("key-1", request("user-1", 1));
+        ReservationResponse response = reservationService.createReservation("user-1", "key-1", request(1));
 
-        assertEquals("res-1", response.getId());
+        assertEquals("res-1", response.getReservationId());
         verifyNoInteractions(mongoTemplate);
     }
 
     @Test
     void rejectsAReusedKeyWhenTheRequestFingerprintDiffers() {
-        ReservationIdempotency record = idempotency("user-1", "key-1", request("user-1", 1), "res-1");
+        ReservationIdempotency record = idempotency("user-1", "key-1", request(1), "res-1");
         when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.of(record));
 
         assertThrows(IdempotencyConflictException.class,
-                () -> reservationService.createReservation("key-1", request("user-1", 2)));
+                () -> reservationService.createReservation("user-1", "key-1", request(2)));
         verifyNoInteractions(mongoTemplate);
     }
 
     private void assertTransitionStatus(String expectedStatus) {
         ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
-        verify(mongoTemplate).findAndModify(any(Query.class), update.capture(), eq(Reservation.class));
+        verify(mongoTemplate).findAndModify(any(Query.class), update.capture(), any(FindAndModifyOptions.class), eq(Reservation.class));
         assertEquals(expectedStatus, update.getValue().getUpdateObject().get("$set", org.bson.Document.class).getString("status"));
     }
 
@@ -263,11 +266,10 @@ class ReservationServiceTest {
         assertEquals(expected, update.getValue().getUpdateObject().get("$inc", org.bson.Document.class).getInteger(field));
     }
 
-    private ReservationRequest request(String userId, int quantity) {
+    private ReservationRequest request(int quantity) {
         ReservationRequest request = new ReservationRequest();
         request.setEventId("event-1");
         request.setTicketTypeId("ticket-1");
-        request.setUserId(userId);
         request.setQuantity(quantity);
         return request;
     }
