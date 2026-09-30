@@ -1,6 +1,7 @@
 package com.flashsale.order.document;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -16,6 +17,7 @@ public class ProcessedEvent {
     private String id;
 
     @Field("event_id")
+    @Indexed(unique = true)
     private String eventId; // UUID of the event
 
     @Field("event_type")

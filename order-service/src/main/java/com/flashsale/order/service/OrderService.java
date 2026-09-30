@@ -2,6 +2,10 @@ package com.flashsale.order.service;
 
 import com.flashsale.order.document.Order;
 import com.flashsale.order.document.Idempotency;
+import com.flashsale.order.document.ProcessedEvent;
+import com.flashsale.order.document.OrderStatus;
+import com.flashsale.order.dto.PaymentResultEnvelope;
+import com.flashsale.order.dto.PaymentResultPayload;
 import com.flashsale.order.dto.OrderRequest;
 import com.flashsale.order.dto.OrderResponse;
 import com.flashsale.order.dto.ReservationResponse;
@@ -16,6 +20,7 @@ import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.ReservationExpiredException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
+import com.flashsale.order.repository.ProcessedEventRepository;
 import com.flashsale.order.outbox.OrderOutboxService;
 import org.springframework.dao.DuplicateKeyException;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +46,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final IdempotencyRepository idempotencyRepository;
+    private final ProcessedEventRepository processedEventRepository;
     private final ReservationServiceClient reservationServiceClient;
     private final CatalogServiceClient catalogServiceClient;
     private final OrderOutboxService orderOutboxService;
@@ -127,6 +133,36 @@ public class OrderService {
         return toResponse(order);
     }
 
+    /** Handles one validated Payment result together with its idempotency record and lifecycle event. */
+    @Transactional
+    public void processPaymentResult(PaymentResultEnvelope event) {
+        if (processedEventRepository.existsByEventId(event.eventId())) return;
+
+        PaymentResultPayload result = event.payload();
+        Order order = orderRepository.findByOrderId(result.orderId())
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + result.orderId()));
+        if (!order.getUserId().equals(result.userId())) {
+            throw new IllegalArgumentException("Payment result user does not match the order");
+        }
+        if (order.getTotalAmount() == null || result.amount() == null
+                || order.getTotalAmount().compareTo(result.amount()) != 0) {
+            throw new IllegalArgumentException("Payment result amount does not match the order");
+        }
+        if (order.getPaymentId() != null && !order.getPaymentId().equals(result.paymentId())) {
+            throw new IllegalArgumentException("Payment result paymentId does not match the order");
+        }
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            recordProcessed(event);
+            return;
+        }
+
+        boolean succeeded = "payment.completed".equals(event.eventType());
+        order.applyPaymentResult(result.paymentId(), succeeded, Instant.now());
+        orderRepository.save(order);
+        if (succeeded) orderOutboxService.appendConfirmed(order); else orderOutboxService.appendPaymentFailed(order);
+        recordProcessed(event);
+    }
+
     private void validateReservation(ReservationResponse reservation, String userId, String requestedReservationId) {
         if (reservation == null || reservation.getReservationId() == null
                 || !requestedReservationId.equals(reservation.getReservationId())) {
@@ -200,5 +236,13 @@ public class OrderService {
             throw new UnauthorizedOrderAccessException("User not authorized to access this order");
         }
         return order;
+    }
+
+    private void recordProcessed(PaymentResultEnvelope event) {
+        ProcessedEvent processed = new ProcessedEvent();
+        processed.setEventId(event.eventId());
+        processed.setEventType(event.eventType());
+        processed.setProcessedAt(Instant.now());
+        processedEventRepository.insert(processed);
     }
 }

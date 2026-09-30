@@ -20,6 +20,7 @@ public class Order {
     private int quantity;
     private BigDecimal unitPrice;
     private BigDecimal totalAmount;
+    private String paymentId;
     private OrderStatus status;
     private PaymentStatus paymentStatus;
     private Instant createdAt;
@@ -46,6 +47,17 @@ public class Order {
     public void cancel(Instant now) { requirePendingPayment("cancel"); status = OrderStatus.CANCELLED; updatedAt = now; }
     public void expire(Instant now) { requirePendingPayment("expire"); status = OrderStatus.EXPIRED; updatedAt = now; }
 
+    public void applyPaymentResult(String resultPaymentId, boolean succeeded, Instant now) {
+        if (resultPaymentId == null || resultPaymentId.isBlank()) {
+            throw new InvalidOrderStateException("Payment result must include a paymentId");
+        }
+        if (paymentId != null && !paymentId.equals(resultPaymentId)) {
+            throw new InvalidOrderStateException("Payment result does not belong to this order");
+        }
+        if (succeeded) confirmPayment(now); else failPayment(now);
+        paymentId = resultPaymentId;
+    }
+
     private void requirePendingPayment(String action) {
         if (status != OrderStatus.PENDING_PAYMENT || paymentStatus != PaymentStatus.PENDING) {
             throw new InvalidOrderStateException("Only an order awaiting payment can " + action);
@@ -61,6 +73,7 @@ public class Order {
     public int getQuantity() { return quantity; } public void setQuantity(int quantity) { this.quantity = quantity; }
     public BigDecimal getUnitPrice() { return unitPrice; } public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
     public BigDecimal getTotalAmount() { return totalAmount; } public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
+    public String getPaymentId() { return paymentId; } public void setPaymentId(String paymentId) { this.paymentId = paymentId; }
     public OrderStatus getStatus() { return status; } public void setStatus(OrderStatus status) { this.status = status; }
     public PaymentStatus getPaymentStatus() { return paymentStatus; } public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
