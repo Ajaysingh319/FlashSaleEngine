@@ -50,8 +50,13 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
 
             try {
                 SignedJWT signedJWT = SignedJWT.parse(token);
-                // Validate signature using HS256
-                SecretKeySpec secretKeySpec = new SecretKeySpec(jwtSecret.getBytes(), "HS256");
+                byte[] keyBytes;
+                try {
+                    keyBytes = java.util.Base64.getDecoder().decode(jwtSecret);
+                } catch (IllegalArgumentException e) {
+                    keyBytes = jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                }
+                SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, "HS256");
                 MACVerifier verifier = new MACVerifier(secretKeySpec);
                 if (!signedJWT.verify(verifier)) {
                     return onError(exchange, "Invalid Jwt signature", HttpStatus.UNAUTHORIZED);

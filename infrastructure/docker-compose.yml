@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  # MongoDB Replica Set for Transactions
+  # MongoDB Replica Set (3 nodes for transaction support)
   mongo1:
     image: mongo:5.0
     container_name: mongo1
@@ -13,6 +11,12 @@ services:
       - mongo1-data:/data/db
     networks:
       - flashsale-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   mongo2:
     image: mongo:5.0
@@ -25,6 +29,12 @@ services:
       - mongo2-data:/data/db
     networks:
       - flashsale-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   mongo3:
     image: mongo:5.0
@@ -37,6 +47,65 @@ services:
       - mongo3-data:/data/db
     networks:
       - flashsale-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Replica set initialization container: waits for primary election and secondary sync
+  mongo-init:
+    image: mongo:5.0
+    container_name: mongo-init
+    restart: "no"
+    depends_on:
+      mongo1:
+        condition: service_healthy
+      mongo2:
+        condition: service_healthy
+      mongo3:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        echo "Waiting for MongoDB cluster nodes to be responsive..."
+        until mongosh --host mongo1:27017 --eval "
+          try {
+            var status = rs.status();
+            if (status.ok === 1) {
+              var members = status.members || [];
+              var primary = members.filter(function(m) { return m.state === 1; });
+              var secondaries = members.filter(function(m) { return m.state === 2; });
+              if (primary.length === 1 && secondaries.length >= 2) {
+                print('Replica set rs0 is healthy and all 3 members are ready.');
+                quit(0);
+              }
+            }
+          } catch(e) {}
+          quit(1);
+        " > /dev/null 2>&1; do
+          echo "Initiating replica set rs0 on mongo1..."
+          mongosh --host mongo1:27017 --eval "
+            try {
+              rs.initiate({
+                _id: 'rs0',
+                members: [
+                  { _id: 0, host: 'mongo1:27017', priority: 2 },
+                  { _id: 1, host: 'mongo2:27017', priority: 1 },
+                  { _id: 2, host: 'mongo3:27017', priority: 1 }
+                ]
+              });
+            } catch(e) {
+              print('Initiate status: ' + e);
+            }
+          " || true
+          sleep 3
+        done
+        echo "MongoDB replica set rs0 is ready with 1 PRIMARY and 2 SECONDARIES!"
 
   # Redis for distributed locking and caching
   redis:
@@ -50,6 +119,12 @@ services:
     networks:
       - flashsale-network
     command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   # Kafka with Zookeeper
   zookeeper:
@@ -72,13 +147,217 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks:
       - flashsale-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Topic creator for Kafka
+  kafka-init-topics:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-init-topics
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        echo "Creating Kafka topics..."
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.created --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.cancelled --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.confirmed --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.payment_failed --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed --partitions 3 --replication-factor 1
+        echo "All Kafka topics created."
+
+  # Backend Services
+  auth-service:
+    build:
+      context: ../auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/auth_db?replicaSet=rs0"
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  catalog-service:
+    build:
+      context: ../catalog-service
+      dockerfile: Dockerfile
+    container_name: catalog-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/catalog_db?replicaSet=rs0"
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  reservation-service:
+    build:
+      context: ../reservation-service
+      dockerfile: Dockerfile
+    container_name: reservation-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/reservation_db?replicaSet=rs0"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  order-service:
+    build:
+      context: ../order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/order_db?replicaSet=rs0"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RESERVATION_SERVICE_URL: http://reservation-service:8083
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      reservation-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8084/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  payment-service:
+    build:
+      context: ../payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/payment_db?replicaSet=rs0"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  api-gateway:
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+      AUTH_SERVICE_URL: http://auth-service:8081
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      RESERVATION_SERVICE_URL: http://reservation-service:8083
+      ORDER_SERVICE_URL: http://order-service:8084
+      PAYMENT_SERVICE_URL: http://payment-service:8085
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      reservation-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - flashsale-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   mongo1-data:
@@ -88,4 +367,5 @@ volumes:
 
 networks:
   flashsale-network:
+    name: flashsale-network
     driver: bridge

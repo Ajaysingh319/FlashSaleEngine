@@ -6,9 +6,13 @@ spring:
     name: reservation-service
   data:
     mongodb:
-      uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/reservation_db?replicaSet=rs0
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://mongo1:27017,mongo2:27017,mongo3:27017/reservation_db?replicaSet=rs0}
       auto-index-creation: true
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
       acks: all
       properties:
@@ -16,7 +20,17 @@ spring:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:flash-sale-engine-secret-key-change-in-production}
+    # 256-bit Base64-encoded secret for HS256 JWT validation
+    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
 
 # Logging
 logging:

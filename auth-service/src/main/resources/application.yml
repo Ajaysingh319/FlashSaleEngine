@@ -6,15 +6,24 @@ spring:
     name: auth-service
   data:
     mongodb:
-      uri: mongodb://mongo1:27017,mongo2:27018,mongo3:27017/auth_db?replicaSet=rs0
-  # Redis configuration will be added later when needed
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://mongo1:27017,mongo2:27017,mongo3:27017/auth_db?replicaSet=rs0}
+      auto-index-creation: true
 
-# JWT Configuration (will be implemented in later steps)
 app:
   jwt:
-    secret: flash-sale-engine-secret-key-change-in-production
-    expiration: 86400000 # 24 hours in milliseconds
-    refresh-expiration: 604800000 # 7 days in milliseconds
+    # 256-bit Base64-encoded secret for HS256 JWT signing
+    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+    expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days in milliseconds
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
 
 # Logging
 logging:

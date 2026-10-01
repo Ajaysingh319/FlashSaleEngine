@@ -7,6 +7,9 @@ target/
 .idea/
 *.iml
 
+# VS Code
+.vscode/
+
 # Maven generated files
 pom.properties
 inputFiles.lst
