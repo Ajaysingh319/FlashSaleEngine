@@ -158,11 +158,16 @@ public class OrderService {
 
         boolean succeeded = "payment.completed".equals(event.eventType());
         if (succeeded) {
+            // Call reservation service to confirm the reservation
             reservationServiceClient.confirmReservation(order.getReservationId(), order.getOrderId(), order.getUserId());
+            // Only after successful reservation confirmation, update order to CONFIRMED
+            order.applyPaymentResult(result.paymentId(), true, Instant.now());
         } else {
+            // Call reservation service to release the reservation
             reservationServiceClient.cancelAfterPaymentFailure(order.getReservationId(), order.getOrderId(), order.getUserId());
+            // After successful release, update order to PAYMENT_FAILED
+            order.applyPaymentResult(result.paymentId(), false, Instant.now());
         }
-        order.applyPaymentResult(result.paymentId(), succeeded, Instant.now());
         orderRepository.save(order);
         if (succeeded) orderOutboxService.appendConfirmed(order); else orderOutboxService.appendPaymentFailed(order);
         recordProcessed(event);
