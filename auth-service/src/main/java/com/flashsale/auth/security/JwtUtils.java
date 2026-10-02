@@ -6,7 +6,6 @@ import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
@@ -15,9 +14,16 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+/**
+ * Issues and parses JWTs. Contract shared with API Gateway, Reservation and Order services:
+ * HS256 signed with the Base64-decoded JWT_SECRET, "sub" = user ID, "role" = user role
+ * (access tokens only; refresh tokens carry no role).
+ */
 @Slf4j
 @Component
 public class JwtUtils {
+
+    public static final String ROLE_CLAIM = "role";
 
     @Value("${app.jwt.secret}")
     private String secretKey;
@@ -44,21 +50,21 @@ public class JwtUtils {
         this.key = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateAccessToken(String username, String role) {
+    public String generateAccessToken(String userId, String role) {
         Map<String, Object> claims = new HashMap<>();
-        claims.put("role", role);
+        claims.put(ROLE_CLAIM, role);
         return JwtBuilder()
                 .setClaims(claims)
-                .setSubject(username)
+                .setSubject(userId)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
                 .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    public String generateRefreshToken(String username) {
+    public String generateRefreshToken(String userId) {
         return JwtBuilder()
-                .setSubject(username)
+                .setSubject(userId)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
                 .setExpiration(new Date(System.currentTimeMillis() + refreshExpiration))
                 .signWith(key, SignatureAlgorithm.HS256)
@@ -69,7 +75,7 @@ public class JwtUtils {
         return Jwts.builder();
     }
 
-    public String extractUsername(String token) {
+    public String extractUserId(String token) {
         return extractClaim(token, Claims::getSubject);
     }
 
@@ -78,24 +84,31 @@ public class JwtUtils {
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> resolver) {
-        final Claims claims = extractAllClaims(token);
+        final Claims claims = parseClaims(token);
         return resolver.apply(claims);
     }
 
-    private Claims extractAllClaims(String token) {
-        return Jwts.parserBuilder()
+    /**
+     * Verifies the signature (HS256 only) and expiration and returns the claims.
+     *
+     * @throws JwtException if the token is malformed, unsigned, wrongly signed or expired
+     */
+    public Claims parseClaims(String token) {
+        Jws<Claims> jws = Jwts.parserBuilder()
                 .setSigningKey(key)
                 .build()
-                .parseClaimsJwt(token)
-                .getBody();
+                .parseClaimsJws(token);
+        if (!SignatureAlgorithm.HS256.getValue().equals(jws.getHeader().getAlgorithm())) {
+            throw new UnsupportedJwtException("Unsupported JWT algorithm: " + jws.getHeader().getAlgorithm());
+        }
+        return jws.getBody();
     }
 
     public boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
-    }
-
-    public boolean validateToken(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        try {
+            return extractExpiration(token).before(new Date());
+        } catch (ExpiredJwtException e) {
+            return true;
+        }
     }
 }

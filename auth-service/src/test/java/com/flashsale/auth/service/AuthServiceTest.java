@@ -54,6 +54,11 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail(request.getEmail())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(request.getPassword())).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User saved = invocation.getArgument(0);
+            saved.setId("user-1");
+            return saved;
+        });
         when(jwtUtils.generateAccessToken(anyString(), anyString())).thenReturn("accessToken");
         when(jwtUtils.generateRefreshToken(anyString())).thenReturn("refreshToken");
         when(jwtUtils.getJwtExpiration()).thenReturn(86400000L);
@@ -65,6 +70,8 @@ class AuthServiceTest {
         assertEquals("refreshToken", response.getRefreshToken());
         assertEquals(86400000L, response.getExpiresIn());
         verify(userRepository).save(any(User.class));
+        verify(jwtUtils).generateAccessToken("user-1", "CUSTOMER");
+        verify(jwtUtils).generateRefreshToken("user-1");
     }
 
     @Test
@@ -93,6 +100,7 @@ class AuthServiceTest {
         when(authenticationManager.authenticate(any())).thenReturn(authentication);
 
         User user = new User();
+        user.setId("user-1");
         user.setEmail("test@example.com");
         user.setRole("CUSTOMER");
         user.setPassword("encodedPassword");
@@ -107,6 +115,8 @@ class AuthServiceTest {
         assertEquals("accessToken", response.getAccessToken());
         assertEquals("refreshToken", response.getRefreshToken());
         assertEquals(86400000L, response.getExpiresIn());
+        verify(jwtUtils).generateAccessToken("user-1", "CUSTOMER");
+        verify(jwtUtils).generateRefreshToken("user-1");
     }
 
     @Test
@@ -115,12 +125,13 @@ class AuthServiceTest {
         request.setRefreshToken("validRefreshToken");
 
         when(jwtUtils.isTokenExpired(request.getRefreshToken())).thenReturn(false);
-        when(jwtUtils.extractUsername(request.getRefreshToken())).thenReturn("test@example.com");
+        when(jwtUtils.extractUserId(request.getRefreshToken())).thenReturn("user-1");
 
         User user = new User();
+        user.setId("user-1");
         user.setEmail("test@example.com");
         user.setRole("CUSTOMER");
-        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findById("user-1")).thenReturn(Optional.of(user));
         when(jwtUtils.generateAccessToken(anyString(), anyString())).thenReturn("newAccessToken");
         when(jwtUtils.generateRefreshToken(anyString())).thenReturn("newRefreshToken");
         when(jwtUtils.getJwtExpiration()).thenReturn(86400000L);
@@ -131,6 +142,8 @@ class AuthServiceTest {
         assertEquals("newAccessToken", response.getAccessToken());
         assertEquals("newRefreshToken", response.getRefreshToken());
         assertEquals(86400000L, response.getExpiresIn());
+        verify(jwtUtils).generateAccessToken("user-1", "CUSTOMER");
+        verify(jwtUtils).generateRefreshToken("user-1");
     }
 
     @Test

@@ -1,8 +1,10 @@
 package com.flashsale.order.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
@@ -39,10 +41,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            Claims claims = Jwts.parserBuilder().setSigningKey(signingKey).build().parseClaimsJws(header.substring(7)).getBody();
+            Jws<Claims> jws = Jwts.parserBuilder().setSigningKey(signingKey).build().parseClaimsJws(header.substring(7));
+            Claims claims = jws.getBody();
+            String userId = claims.getSubject();
             String role = claims.get("role", String.class);
-            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
-                    claims.getSubject(), null, List.of(new SimpleGrantedAuthority("ROLE_" + role))));
+            // Auth Service access tokens: HS256, sub = user ID, role = CUSTOMER/ADMIN (refresh tokens have no role)
+            if (SignatureAlgorithm.HS256.getValue().equals(jws.getHeader().getAlgorithm())
+                    && userId != null && !userId.isBlank() && role != null && !role.isBlank()) {
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role))));
+            }
         } catch (JwtException | IllegalArgumentException exception) {
             SecurityContextHolder.clearContext();
         }

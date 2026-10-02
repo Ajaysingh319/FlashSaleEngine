@@ -1,8 +1,10 @@
 package com.flashsale.reservation.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
@@ -41,12 +43,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            Claims claims = Jwts.parserBuilder().setSigningKey(signingKey).build()
-                    .parseClaimsJws(header.substring(7)).getBody();
+            Jws<Claims> jws = Jwts.parserBuilder().setSigningKey(signingKey).build()
+                    .parseClaimsJws(header.substring(7));
+            Claims claims = jws.getBody();
+            String userId = claims.getSubject();
             String role = claims.get("role", String.class);
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    claims.getSubject(), null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            // HS256 with sub + role: Auth Service access tokens (sub = user ID, role = CUSTOMER/ADMIN) or Order
+            // Service internal tokens (role = INTERNAL). Refresh tokens carry no role and are not accepted.
+            if (SignatureAlgorithm.HS256.getValue().equals(jws.getHeader().getAlgorithm())
+                    && userId != null && !userId.isBlank() && role != null && !role.isBlank()) {
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         } catch (JwtException | IllegalArgumentException exception) {
             SecurityContextHolder.clearContext();
         }

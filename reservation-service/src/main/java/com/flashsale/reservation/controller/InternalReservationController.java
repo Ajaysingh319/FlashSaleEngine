@@ -21,18 +21,18 @@ public class InternalReservationController {
     private final ReservationService reservationService;
 
     @GetMapping("/{id}")
-    public ResponseEntity<ReservationResponse> getReservation(@PathVariable String id) {
+    public ResponseEntity<ReservationResponse> getReservation(@PathVariable("id") String id) {
         return ResponseEntity.ok(reservationService.getInternalReservationById(id));
     }
 
     @PostMapping("/{id}/confirm")
-    public ResponseEntity<ReservationResponse> confirmReservation(@PathVariable String id,
+    public ResponseEntity<ReservationResponse> confirmReservation(@PathVariable("id") String id,
             @Valid @RequestBody ReservationLifecycleRequest request) {
         return ResponseEntity.ok(reservationService.confirmReservationForOrder(id, request.getOrderId(), request.getUserId()));
     }
 
     @PostMapping("/{id}/cancel-after-payment-failure")
-    public ResponseEntity<ReservationResponse> cancelAfterPaymentFailure(@PathVariable String id,
+    public ResponseEntity<ReservationResponse> cancelAfterPaymentFailure(@PathVariable("id") String id,
             @Valid @RequestBody ReservationLifecycleRequest request) {
         return ResponseEntity.ok(reservationService.cancelReservationAfterPaymentFailure(id, request.getOrderId(), request.getUserId()));
     }

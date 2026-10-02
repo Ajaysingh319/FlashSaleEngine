@@ -39,11 +39,11 @@ public class AuthService {
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
 
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
 
-        // Generate tokens
-        String accessToken = jwtUtils.generateAccessToken(user.getEmail(), user.getRole());
-        String refreshToken = jwtUtils.generateRefreshToken(user.getEmail());
+        // Generate tokens (subject is the user ID)
+        String accessToken = jwtUtils.generateAccessToken(savedUser.getId(), savedUser.getRole());
+        String refreshToken = jwtUtils.generateRefreshToken(savedUser.getId());
 
         AuthResponse response = new AuthResponse();
         response.setAccessToken(accessToken);
@@ -64,8 +64,8 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        String accessToken = jwtUtils.generateAccessToken(user.getEmail(), user.getRole());
-        String refreshToken = jwtUtils.generateRefreshToken(user.getEmail());
+        String accessToken = jwtUtils.generateAccessToken(user.getId(), user.getRole());
+        String refreshToken = jwtUtils.generateRefreshToken(user.getId());
 
         AuthResponse response = new AuthResponse();
         response.setAccessToken(accessToken);
@@ -80,12 +80,12 @@ public class AuthService {
             throw new RuntimeException("Refresh token is expired");
         }
 
-        String email = jwtUtils.extractUsername(refreshToken);
-        User user = userRepository.findByEmail(email)
+        String userId = jwtUtils.extractUserId(refreshToken);
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        String newAccessToken = jwtUtils.generateAccessToken(user.getEmail(), user.getRole());
-        String newRefreshToken = jwtUtils.generateRefreshToken(user.getEmail());
+        String newAccessToken = jwtUtils.generateAccessToken(user.getId(), user.getRole());
+        String newRefreshToken = jwtUtils.generateRefreshToken(user.getId());
 
         AuthResponse response = new AuthResponse();
         response.setAccessToken(newAccessToken);

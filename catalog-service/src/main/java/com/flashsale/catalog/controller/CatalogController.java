@@ -33,17 +33,17 @@ public class CatalogController {
     }
 
     @GetMapping("/events/{id}")
-    public ResponseEntity<EventResponse> getEventById(@PathVariable String id) {
+    public ResponseEntity<EventResponse> getEventById(@PathVariable("id") String id) {
         return ResponseEntity.ok(eventService.getEventById(id));
     }
 
     @PutMapping("/events/{id}")
-    public ResponseEntity<EventResponse> updateEvent(@PathVariable String id, @Valid @RequestBody EventRequest request) {
+    public ResponseEntity<EventResponse> updateEvent(@PathVariable("id") String id, @Valid @RequestBody EventRequest request) {
         return ResponseEntity.ok(eventService.updateEvent(id, request));
     }
 
     @DeleteMapping("/events/{id}")
-    public ResponseEntity<Void> deleteEvent(@PathVariable String id) {
+    public ResponseEntity<Void> deleteEvent(@PathVariable("id") String id) {
         eventService.deleteEvent(id);
         return ResponseEntity.noContent().build();
     }
@@ -60,22 +60,22 @@ public class CatalogController {
     }
 
     @GetMapping("/ticket-types/{id}")
-    public ResponseEntity<TicketTypeResponse> getTicketTypeById(@PathVariable String id) {
+    public ResponseEntity<TicketTypeResponse> getTicketTypeById(@PathVariable("id") String id) {
         return ResponseEntity.ok(ticketTypeService.getTicketTypeById(id));
     }
 
     @GetMapping("/events/{eventId}/ticket-types")
-    public ResponseEntity<List<TicketTypeResponse>> getTicketTypesByEventId(@PathVariable String eventId) {
+    public ResponseEntity<List<TicketTypeResponse>> getTicketTypesByEventId(@PathVariable("eventId") String eventId) {
         return ResponseEntity.ok(ticketTypeService.getTicketTypesByEventId(eventId));
     }
 
     @PutMapping("/ticket-types/{id}")
-    public ResponseEntity<TicketTypeResponse> updateTicketType(@PathVariable String id, @Valid @RequestBody TicketTypeRequest request) {
+    public ResponseEntity<TicketTypeResponse> updateTicketType(@PathVariable("id") String id, @Valid @RequestBody TicketTypeRequest request) {
         return ResponseEntity.ok(ticketTypeService.updateTicketType(id, request));
     }
 
     @DeleteMapping("/ticket-types/{id}")
-    public ResponseEntity<Void> deleteTicketType(@PathVariable String id) {
+    public ResponseEntity<Void> deleteTicketType(@PathVariable("id") String id) {
         ticketTypeService.deleteTicketType(id);
         return ResponseEntity.noContent().build();
     }

@@ -20,7 +20,10 @@ public class ReservationSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health").permitAll()
+                        // Service-to-service API (Order Service tokens)
                         .requestMatchers("/internal/**").hasRole("INTERNAL")
+                        // End-user API: Auth Service roles only, never service tokens
+                        .requestMatchers("/api/v1/**").hasAnyRole("CUSTOMER", "ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> response.sendError(HttpStatus.UNAUTHORIZED.value()))

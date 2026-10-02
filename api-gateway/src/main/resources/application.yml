@@ -4,9 +4,9 @@ server:
 spring:
   application:
     name: api-gateway
-  credentials:
-    # 256-bit Base64-encoded JWT secret matching auth, reservation, and order services
-    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+  main:
+    # spring-boot-starter-web is on the classpath; Spring Cloud Gateway requires the reactive stack
+    web-application-type: reactive
   cloud:
     gateway:
       default-filters:
@@ -80,6 +80,11 @@ spring:
             - Path=/api/v1/payments/**
           filters:
             - AuthenticationRequired
+
+app:
+  jwt:
+    # Base64-encoded secret (>= 256 bits) for HS256 JWT validation; must match auth, reservation, and order services
+    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
 
 management:
   endpoints:

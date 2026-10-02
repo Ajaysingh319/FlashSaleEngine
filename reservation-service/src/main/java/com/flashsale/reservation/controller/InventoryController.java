@@ -26,7 +26,7 @@ public class InventoryController {
     }
 
     @GetMapping("/{ticketTypeId}")
-    public ResponseEntity<InventoryResponse> get(@PathVariable String ticketTypeId) {
+    public ResponseEntity<InventoryResponse> get(@PathVariable("ticketTypeId") String ticketTypeId) {
         return ResponseEntity.ok(reservationService.getInventory(ticketTypeId));
     }
 }

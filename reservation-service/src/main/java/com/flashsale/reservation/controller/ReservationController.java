@@ -27,7 +27,7 @@ public class ReservationController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ReservationResponse> getReservationById(@PathVariable String id, Authentication authentication) {
+    public ResponseEntity<ReservationResponse> getReservationById(@PathVariable("id") String id, Authentication authentication) {
         return ResponseEntity.ok(reservationService.getReservationById(id, authentication.getName()));
     }
 
@@ -37,7 +37,7 @@ public class ReservationController {
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<Void> cancelReservation(@PathVariable String id, Authentication authentication) {
+    public ResponseEntity<Void> cancelReservation(@PathVariable("id") String id, Authentication authentication) {
         reservationService.cancelReservation(id, authentication.getName());
         return ResponseEntity.noContent().build();
     }

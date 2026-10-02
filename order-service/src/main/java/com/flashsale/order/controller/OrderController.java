@@ -30,14 +30,14 @@ public class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponse> getOrder(@PathVariable String orderId, Principal principal) {
+    public ResponseEntity<OrderResponse> getOrder(@PathVariable("orderId") String orderId, Principal principal) {
         String userId = principal.getName();
         OrderResponse response = orderService.getOrder(orderId, userId);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{orderId}/cancel")
-    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable String orderId, Principal principal) {
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable("orderId") String orderId, Principal principal) {
         return ResponseEntity.ok(orderService.cancelOrder(orderId, principal.getName()));
     }
 

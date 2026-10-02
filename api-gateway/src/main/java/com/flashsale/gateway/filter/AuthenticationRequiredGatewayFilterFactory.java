@@ -1,10 +1,11 @@
 package com.flashsale.gateway.filter;
 
-import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.MACVerifier;
-import lombok.AllArgsConstructor;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
@@ -17,23 +18,52 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import javax.crypto.spec.SecretKeySpec;
 import java.text.ParseException;
+import java.util.Base64;
 import java.util.Date;
 
 /**
  * Gateway filter to validate JWT for protected routes.
  * Extracts user information from valid token and forwards as headers.
+ *
+ * Tokens are issued by Auth Service: HS256, signed with the Base64-decoded JWT_SECRET,
+ * "sub" = user ID and "role" = user role (e.g. CUSTOMER, ADMIN).
  */
 @Component
 @Slf4j
 public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayFilterFactory<AuthenticationRequiredGatewayFilterFactory.Config> {
 
-    @Value("${spring.credentials.secret}")
-    private String jwtSecret;
+    static final String USER_ID_HEADER = "X-User-Id";
+    static final String USER_ROLE_HEADER = "X-User-Role";
 
-    public AuthenticationRequiredGatewayFilterFactory() {
+    private static final int MIN_SECRET_BYTES = 32;
+
+    private final MACVerifier verifier;
+
+    public AuthenticationRequiredGatewayFilterFactory(@Value("${app.jwt.secret}") String jwtSecret) {
         super(Config.class);
+        this.verifier = createVerifier(jwtSecret);
+    }
+
+    /** Decodes the secret exactly like Auth Service (standard Base64, at least 256 bits); fails fast otherwise. */
+    private static MACVerifier createVerifier(String jwtSecret) {
+        if (jwtSecret == null || jwtSecret.isBlank()) {
+            throw new IllegalStateException("app.jwt.secret (JWT_SECRET) must be configured");
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(jwtSecret.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("app.jwt.secret (JWT_SECRET) must be a Base64-encoded value", e);
+        }
+        if (keyBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException("app.jwt.secret (JWT_SECRET) must decode to at least 256 bits for HS256");
+        }
+        try {
+            return new MACVerifier(keyBytes);
+        } catch (JOSEException e) {
+            throw new IllegalStateException("Invalid JWT secret", e);
+        }
     }
 
     @Override
@@ -50,30 +80,29 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
 
             try {
                 SignedJWT signedJWT = SignedJWT.parse(token);
-                byte[] keyBytes;
-                try {
-                    keyBytes = java.util.Base64.getDecoder().decode(jwtSecret);
-                } catch (IllegalArgumentException e) {
-                    keyBytes = jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                if (!JWSAlgorithm.HS256.equals(signedJWT.getHeader().getAlgorithm())) {
+                    return onError(exchange, "Unsupported Jwt algorithm", HttpStatus.UNAUTHORIZED);
                 }
-                SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, "HS256");
-                MACVerifier verifier = new MACVerifier(secretKeySpec);
                 if (!signedJWT.verify(verifier)) {
                     return onError(exchange, "Invalid Jwt signature", HttpStatus.UNAUTHORIZED);
                 }
+                JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
                 // Validate expiration
-                Date expiryTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-                if (expiryTime.before(new Date())) {
+                Date expiryTime = claims.getExpirationTime();
+                if (expiryTime == null || !expiryTime.after(new Date())) {
                     return onError(exchange, "Expired Jwt token", HttpStatus.UNAUTHORIZED);
                 }
-                // Extract claims
-                String userId = signedJWT.getJWTClaimsSet().getSubject();
-                String role = (String) signedJWT.getJWTClaimsSet().getClaim("role");
+                // Extract claims; access tokens always carry both (refresh tokens have no role)
+                String userId = claims.getSubject();
+                String role = claims.getStringClaim("role");
+                if (isBlank(userId) || isBlank(role)) {
+                    return onError(exchange, "Jwt token is not an access token", HttpStatus.UNAUTHORIZED);
+                }
 
-                // Forward user info to backend services
+                // Forward user info to backend services (overrides any client-supplied values)
                 ServerHttpRequest mutatedRequest = request.mutate()
-                        .header("X-User-Id", userId)
-                        .header("X-User-Role", role)
+                        .header(USER_ID_HEADER, userId)
+                        .header(USER_ROLE_HEADER, role)
                         .build();
 
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
@@ -85,7 +114,12 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
         };
     }
 
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private Mono<Void> onError(ServerWebExchange exchange, String err, HttpStatus httpStatus) {
+        log.debug("Rejecting request {}: {}", exchange.getRequest().getPath(), err);
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(httpStatus);
         return response.setComplete();

@@ -78,6 +78,26 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- jjwt (test only): signs tokens the same way Auth Service does, to verify cross-service compatibility -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.11.5</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.11.5</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.11.5</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Spring Security OAuth2 Resource Server for JWT validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
