@@ -18,6 +18,12 @@ spring:
       properties:
         enable.idempotence: true
 
+catalog:
+  service:
+    url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+    connect-timeout: ${CATALOG_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${CATALOG_SERVICE_READ_TIMEOUT:3s}
+
 app:
   jwt:
     # 256-bit Base64-encoded secret for HS256 JWT validation

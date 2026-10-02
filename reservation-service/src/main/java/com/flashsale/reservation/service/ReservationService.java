@@ -62,6 +62,7 @@ public class ReservationService {
     private final StringRedisTemplate redisTemplate;
     private final TransactionTemplate transactionTemplate;
     private final ReservationOutboxService reservationOutboxService;
+    private final EventSaleEligibilityValidator eventSaleEligibilityValidator;
 
     public InventoryResponse initializeInventory(InventoryInitializationRequest request) {
         if (request.getTotalQuantity() != request.getAvailableQuantity() + request.getReservedQuantity() + request.getSoldQuantity()) {
@@ -98,6 +99,8 @@ public class ReservationService {
         if (existing.isPresent()) {
             return replayOrReject(existing.get(), requestFingerprint);
         }
+        // Sale-window/event eligibility (TDD 21 step 4): checked before any lock or inventory change.
+        eventSaleEligibilityValidator.assertReservable(request.getEventId());
 
         try {
             return withLocks(userId, request.getEventId(), request.getTicketTypeId(), () -> {

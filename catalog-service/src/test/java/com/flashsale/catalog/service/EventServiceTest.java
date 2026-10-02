@@ -3,6 +3,7 @@ package com.flashsale.catalog.service;
 import com.flashsale.catalog.document.Event;
 import com.flashsale.catalog.dto.EventRequest;
 import com.flashsale.catalog.dto.EventResponse;
+import com.flashsale.catalog.exception.EventNotFoundException;
 import com.flashsale.catalog.repository.EventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -202,6 +203,37 @@ class EventServiceTest {
         assertEquals(request.getSaleStartTime(), response.getSaleStartTime());
         assertEquals(request.getSaleEndTime(), response.getSaleEndTime());
         assertEquals(request.getStatus(), response.getStatus());
+    }
+
+    @Test
+    void testUpdateEventWithoutStatusKeepsExistingStatus() {
+        Event existing = new Event();
+        existing.setId("eventId");
+        existing.setStatus("ON_SALE");
+        when(eventRepository.findById("eventId")).thenReturn(Optional.of(existing));
+        when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        EventRequest request = new EventRequest();
+        request.setName("New Name");
+        request.setVenue("Venue");
+        request.setCity("City");
+        request.setStartTime(Instant.now().plusSeconds(100));
+        request.setEndTime(Instant.now().plusSeconds(3700));
+        request.setSaleStartTime(Instant.now());
+        request.setSaleEndTime(Instant.now().plusSeconds(50));
+
+        EventResponse response = eventService.updateEvent("eventId", request);
+
+        assertEquals("ON_SALE", response.getStatus());
+    }
+
+    @Test
+    void testGetOrUpdateUnknownEventThrowsEventNotFound() {
+        when(eventRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(EventNotFoundException.class, () -> eventService.getEventById("missing"));
+        assertThrows(EventNotFoundException.class, () -> eventService.updateEvent("missing", new EventRequest()));
+        verify(eventRepository, never()).save(any());
     }
 
     @Test

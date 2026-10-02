@@ -1,5 +1,9 @@
 package com.flashsale.reservation.controller;
 
+import com.flashsale.reservation.exception.CatalogUnavailableException;
+import com.flashsale.reservation.exception.EventCancelledException;
+import com.flashsale.reservation.exception.EventNotFoundException;
+import com.flashsale.reservation.exception.EventNotOnSaleException;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
@@ -49,6 +53,26 @@ public class ReservationExceptionHandler {
     @ExceptionHandler(InvalidReservationStateException.class)
     ResponseEntity<ErrorResponse> handleInvalidState(InvalidReservationStateException exception) {
         return error(HttpStatus.CONFLICT, "INVALID_RESERVATION_STATE", exception.getMessage());
+    }
+
+    @ExceptionHandler(EventNotFoundException.class)
+    ResponseEntity<ErrorResponse> handleEventNotFound(EventNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "EVENT_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(EventCancelledException.class)
+    ResponseEntity<ErrorResponse> handleEventCancelled(EventCancelledException exception) {
+        return error(HttpStatus.CONFLICT, "EVENT_CANCELLED", exception.getMessage());
+    }
+
+    @ExceptionHandler(EventNotOnSaleException.class)
+    ResponseEntity<ErrorResponse> handleEventNotOnSale(EventNotOnSaleException exception) {
+        return error(HttpStatus.CONFLICT, "EVENT_NOT_ON_SALE", exception.getMessage());
+    }
+
+    @ExceptionHandler(CatalogUnavailableException.class)
+    ResponseEntity<ErrorResponse> handleCatalogUnavailable(CatalogUnavailableException exception) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "Event eligibility could not be verified; please retry later");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

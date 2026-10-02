@@ -1,7 +1,10 @@
 package com.flashsale.catalog.dto;
 
+import com.flashsale.catalog.document.EventStatus;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import java.time.Instant;
 
 public class EventRequest {
@@ -29,7 +32,19 @@ public class EventRequest {
     @NotNull
     private Instant saleEndTime;
 
-    private String status; // DRAFT, UPCOMING, ON_SALE, SOLD_OUT, COMPLETED, CANCELLED
+    // Optional: defaults to DRAFT on create and is left unchanged on update when omitted
+    @Pattern(regexp = EventStatus.NAME_PATTERN, message = "must be one of: DRAFT, UPCOMING, ON_SALE, SOLD_OUT, COMPLETED, CANCELLED")
+    private String status;
+
+    @AssertTrue(message = "endTime must be after startTime")
+    public boolean isEndTimeAfterStartTime() {
+        return startTime == null || endTime == null || endTime.isAfter(startTime);
+    }
+
+    @AssertTrue(message = "saleEndTime must not be before saleStartTime")
+    public boolean isSaleEndTimeNotBeforeSaleStartTime() {
+        return saleStartTime == null || saleEndTime == null || !saleEndTime.isBefore(saleStartTime);
+    }
 
     public String getName() {
         return name;

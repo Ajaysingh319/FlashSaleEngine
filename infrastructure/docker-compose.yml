@@ -250,6 +250,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CATALOG_SERVICE_URL: http://catalog-service:8082
       JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
     depends_on:
       mongo-init:

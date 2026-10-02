@@ -52,6 +52,7 @@ class ReservationServiceTest {
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private ReservationOutboxService reservationOutboxService;
+    @Mock private EventSaleEligibilityValidator eventSaleEligibilityValidator;
     @InjectMocks private ReservationService reservationService;
 
     @BeforeEach
@@ -250,6 +251,7 @@ class ReservationServiceTest {
 
         assertEquals("res-1", response.getReservationId());
         verifyNoInteractions(mongoTemplate);
+        verifyNoInteractions(eventSaleEligibilityValidator);
     }
 
     @Test
@@ -260,6 +262,7 @@ class ReservationServiceTest {
         assertThrows(IdempotencyConflictException.class,
                 () -> reservationService.createReservation("user-1", "key-1", request(2)));
         verifyNoInteractions(mongoTemplate);
+        verifyNoInteractions(eventSaleEligibilityValidator);
     }
 
     private void assertTransitionStatus(String expectedStatus) {

@@ -2,12 +2,14 @@ package com.flashsale.catalog.controller;
 
 import com.flashsale.catalog.dto.EventRequest;
 import com.flashsale.catalog.dto.EventResponse;
+import com.flashsale.catalog.dto.EventSearchRequest;
 import com.flashsale.catalog.dto.TicketTypeRequest;
 import com.flashsale.catalog.dto.TicketTypeResponse;
 import com.flashsale.catalog.service.EventService;
 import com.flashsale.catalog.service.TicketTypeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,9 +29,17 @@ public class CatalogController {
         return ResponseEntity.ok(eventService.createEvent(request));
     }
 
+    /**
+     * Lists, searches, filters, sorts and paginates events. The body stays a JSON array; pagination
+     * metadata is returned in the X-Total-Count and X-Total-Pages headers.
+     */
     @GetMapping("/events")
-    public ResponseEntity<List<EventResponse>> getAllEvents() {
-        return ResponseEntity.ok(eventService.getAllEvents());
+    public ResponseEntity<List<EventResponse>> searchEvents(@Valid @ModelAttribute EventSearchRequest searchRequest) {
+        Page<EventResponse> page = eventService.searchEvents(searchRequest);
+        return ResponseEntity.ok()
+                .header("X-Total-Count", String.valueOf(page.getTotalElements()))
+                .header("X-Total-Pages", String.valueOf(page.getTotalPages()))
+                .body(page.getContent());
     }
 
     @GetMapping("/events/{id}")
