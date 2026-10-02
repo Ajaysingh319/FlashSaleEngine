@@ -128,7 +128,7 @@ services:
 
   # Kafka with Zookeeper
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
     restart: unless-stopped
     environment:
@@ -140,7 +140,7 @@ services:
       - flashsale-network
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
     restart: unless-stopped
     depends_on:
@@ -170,7 +170,7 @@ services:
 
   # Topic creator for Kafka
   kafka-init-topics:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.5.0
     container_name: kafka-init-topics
     restart: "no"
     depends_on:
