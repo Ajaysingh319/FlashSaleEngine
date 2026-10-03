@@ -11,12 +11,17 @@ import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.exception.ReservationExpiredException;
 import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class ReservationExceptionHandler {
@@ -78,6 +83,32 @@ public class ReservationExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<ErrorResponse> handleBadRequest(IllegalArgumentException exception) {
         return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException exception) {
+        String message = exception.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
+                .sorted()
+                .collect(Collectors.joining("; "));
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", message.isEmpty() ? "Request validation failed" : message);
+    }
+
+    /** Missing, non-JSON or wrongly typed bodies; the parser's own message is not returned because it names internal classes. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException exception) {
+        if (exception.getCause() instanceof MismatchedInputException mismatch && !mismatch.getPath().isEmpty()) {
+            String field = mismatch.getPath().stream()
+                    .map(ref -> ref.getFieldName() != null ? ref.getFieldName() : "[" + ref.getIndex() + "]")
+                    .collect(Collectors.joining("."));
+            return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid value for field '" + field + "'");
+        }
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Request body is missing or is not valid JSON");
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException exception) {
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getHeaderName() + " header is required");
     }
 
     private ResponseEntity<ErrorResponse> error(HttpStatus status, String code, String message) {

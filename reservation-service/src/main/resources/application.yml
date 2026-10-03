@@ -11,6 +11,10 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  jackson:
+    deserialization:
+      # Reject fractional JSON numbers for integer fields (e.g. quantity 2.5) instead of truncating them.
+      accept-float-as-int: false
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:

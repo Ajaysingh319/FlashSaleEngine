@@ -93,6 +93,10 @@ public class ReservationService {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("Idempotency-Key is required");
         }
+        // Defense in depth behind @Valid: a non-positive quantity would invert the inventory update.
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new IllegalArgumentException("quantity must be a positive integer");
+        }
         String requestFingerprint = requestFingerprint(request);
         Optional<ReservationIdempotency> existing = idempotencyRepository
                 .findByUserIdAndIdempotencyKey(userId, idempotencyKey);

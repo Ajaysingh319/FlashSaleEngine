@@ -265,6 +265,54 @@ class ReservationServiceTest {
         verifyNoInteractions(eventSaleEligibilityValidator);
     }
 
+    @Test
+    void rejectsNonPositiveOrMissingQuantityBeforeAnyLockOrInventoryUpdate() {
+        ReservationRequest missingQuantity = request(1);
+        missingQuantity.setQuantity(null);
+        for (ReservationRequest invalid : List.of(request(-2), request(0), missingQuantity)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> reservationService.createReservation("user-1", "key-1", invalid));
+        }
+        verifyNoInteractions(mongoTemplate, redisTemplate, transactionTemplate, eventSaleEligibilityValidator,
+                idempotencyRepository, reservationRepository, reservationOutboxService);
+    }
+
+    @Test
+    void singleRequestAboveFourTicketLimitIsRejectedWithoutInventoryUpdateOrReservation() {
+        for (int quantity : new int[]{5, Integer.MAX_VALUE}) {
+            assertThrows(PurchaseLimitExceededException.class,
+                    () -> reservationService.createReservation("user-1", "key-" + quantity, request(quantity)));
+        }
+        verifyNoInteractions(mongoTemplate, reservationOutboxService);
+        verify(reservationRepository, never()).save(any());
+        verify(idempotencyRepository, never()).insert(any(ReservationIdempotency.class));
+    }
+
+    @Test
+    void requestThatWouldTakeExistingAllocationAboveFourIsRejected() {
+        Reservation existing = activeReservation("res-existing");
+        existing.setQuantity(3);
+        when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
+
+        assertThrows(PurchaseLimitExceededException.class,
+                () -> reservationService.createReservation("user-1", "key-1", request(2)));
+        verifyNoInteractions(mongoTemplate);
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    void requestThatReachesExactlyFourIsAllowed() {
+        Reservation existing = activeReservation("res-existing");
+        existing.setQuantity(3);
+        when(reservationRepository.findByUserIdAndEventIdAndStatusIn(anyString(), anyString(), anyCollection())).thenReturn(List.of(existing));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Inventory.class))).thenReturn(updated());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        reservationService.createReservation("user-1", "key-1", request(1));
+
+        assertInventoryIncrement("reservedQuantity", 1);
+    }
+
     private void assertTransitionStatus(String expectedStatus) {
         ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
         verify(mongoTemplate).findAndModify(any(Query.class), update.capture(), any(FindAndModifyOptions.class), eq(Reservation.class));
