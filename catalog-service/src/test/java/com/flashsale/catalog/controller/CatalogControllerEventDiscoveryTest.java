@@ -1,10 +1,16 @@
 package com.flashsale.catalog.controller;
 
+import com.flashsale.catalog.security.CatalogSecurityConfig;
+import org.springframework.context.annotation.Import;
+
+import static com.flashsale.catalog.security.CatalogTestTokens.asAdmin;
+
 import com.flashsale.catalog.document.EventStatus;
 import com.flashsale.catalog.dto.EventRequest;
 import com.flashsale.catalog.dto.EventResponse;
 import com.flashsale.catalog.dto.EventSearchRequest;
 import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.EventStateConflictException;
 import com.flashsale.catalog.service.EventService;
 import com.flashsale.catalog.service.TicketTypeService;
 import org.junit.jupiter.api.Test;
@@ -31,6 +37,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(controllers = CatalogController.class)
+@Import(CatalogSecurityConfig.class)
 class CatalogControllerEventDiscoveryTest {
 
     private static final String VALID_EVENT_BODY = """
@@ -204,7 +211,7 @@ class CatalogControllerEventDiscoveryTest {
     void createValidEventSucceeds() throws Exception {
         when(eventService.createEvent(any())).thenReturn(event("evt-new", "Delhi Music Festival"));
 
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("evt-new"));
 
@@ -215,7 +222,7 @@ class CatalogControllerEventDiscoveryTest {
     void createRejectsEndTimeNotAfterStartTime() throws Exception {
         String body = VALID_EVENT_BODY.replace("\"endTime\":\"2026-12-02T00:00:00Z\"", "\"endTime\":\"2026-12-01T18:00:00Z\"");
 
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.error.message", containsString("endTime must be after startTime")));
@@ -227,7 +234,7 @@ class CatalogControllerEventDiscoveryTest {
     void createRejectsSaleEndBeforeSaleStart() throws Exception {
         String body = VALID_EVENT_BODY.replace("\"saleEndTime\":\"2026-12-01T17:00:00Z\"", "\"saleEndTime\":\"2026-10-01T00:00:00Z\"");
 
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.message", containsString("saleEndTime must not be before saleStartTime")));
 
@@ -236,12 +243,12 @@ class CatalogControllerEventDiscoveryTest {
 
     @Test
     void createRejectsInvalidStatusAndMissingRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_EVENT_BODY.replace("\"UPCOMING\"", "\"LIVE\"")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.message", containsString("status")));
 
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Only a name\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.message", containsString("venue")))
@@ -252,7 +259,7 @@ class CatalogControllerEventDiscoveryTest {
 
     @Test
     void createRejectsMalformedJson() throws Exception {
-        mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content("{not json"))
+        mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content("{not json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
@@ -261,11 +268,11 @@ class CatalogControllerEventDiscoveryTest {
     void updateValidatesAndBindsId() throws Exception {
         when(eventService.updateEvent(eq("evt-1"), any())).thenReturn(event("evt-1", "Renamed"));
 
-        mockMvc.perform(put("/api/v1/events/evt-1").contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
+        mockMvc.perform(put("/api/v1/events/evt-1").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Renamed"));
 
-        mockMvc.perform(put("/api/v1/events/evt-1").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put("/api/v1/events/evt-1").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_EVENT_BODY.replace("\"endTime\":\"2026-12-02T00:00:00Z\"", "\"endTime\":\"2026-11-01T00:00:00Z\"")))
                 .andExpect(status().isBadRequest());
 
@@ -276,14 +283,60 @@ class CatalogControllerEventDiscoveryTest {
     void updateOfUnknownEventReturnsEventNotFound() throws Exception {
         when(eventService.updateEvent(eq("missing"), any())).thenThrow(new EventNotFoundException("Event not found: missing"));
 
-        mockMvc.perform(put("/api/v1/events/missing").contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
+        mockMvc.perform(put("/api/v1/events/missing").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("EVENT_NOT_FOUND"));
+    }
+
+    // --- Event cancellation: POST /api/v1/events/{eventId}/cancel (PRD 6.14, 16) ---
+
+    @Test
+    void adminCancelReturnsCancelledEvent() throws Exception {
+        EventResponse cancelled = event("evt-1", "Delhi Music Festival");
+        cancelled.setStatus("CANCELLED");
+        when(eventService.cancelEvent("evt-1")).thenReturn(cancelled);
+
+        mockMvc.perform(post("/api/v1/events/evt-1/cancel").with(asAdmin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("evt-1"))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(eventService).cancelEvent("evt-1");
+    }
+
+    @Test
+    void cancellingUnknownEventIs404() throws Exception {
+        when(eventService.cancelEvent("missing")).thenThrow(new EventNotFoundException("Event not found: missing"));
+
+        mockMvc.perform(post("/api/v1/events/missing/cancel").with(asAdmin()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("EVENT_NOT_FOUND"));
     }
 
     @Test
+    void cancellingCompletedEventIs409() throws Exception {
+        when(eventService.cancelEvent("evt-1"))
+                .thenThrow(new EventStateConflictException("Event evt-1 is completed and cannot be cancelled"));
+
+        mockMvc.perform(post("/api/v1/events/evt-1/cancel").with(asAdmin()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("EVENT_STATE_CONFLICT"));
+    }
+
+    @Test
+    void reopeningCancelledEventThroughUpdateIs409() throws Exception {
+        when(eventService.updateEvent(eq("evt-1"), any()))
+                .thenThrow(new EventStateConflictException("Event evt-1 is cancelled and cannot be reopened"));
+
+        mockMvc.perform(put("/api/v1/events/evt-1").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(VALID_EVENT_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EVENT_STATE_CONFLICT"));
+    }
+
+    @Test
     void deleteEventIsUnchanged() throws Exception {
-        mockMvc.perform(delete("/api/v1/events/evt-1")).andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/events/evt-1").with(asAdmin())).andExpect(status().isNoContent());
 
         verify(eventService).deleteEvent("evt-1");
     }

@@ -4,6 +4,7 @@ import com.flashsale.catalog.document.Event;
 import com.flashsale.catalog.dto.EventRequest;
 import com.flashsale.catalog.dto.EventResponse;
 import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.EventStateConflictException;
 import com.flashsale.catalog.repository.EventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -234,6 +235,92 @@ class EventServiceTest {
         assertThrows(EventNotFoundException.class, () -> eventService.getEventById("missing"));
         assertThrows(EventNotFoundException.class, () -> eventService.updateEvent("missing", new EventRequest()));
         verify(eventRepository, never()).save(any());
+    }
+
+    private Event eventWithStatus(String status) {
+        Event event = new Event();
+        event.setId("evt-1");
+        event.setName("Delhi Music Festival");
+        event.setStatus(status);
+        event.setUpdatedAt(Instant.EPOCH);
+        return event;
+    }
+
+    @Test
+    void cancelSetsStatusCancelledForEveryCancellableStatus() {
+        for (String status : List.of("DRAFT", "UPCOMING", "ON_SALE", "SOLD_OUT")) {
+            reset(eventRepository);
+            Event event = eventWithStatus(status);
+            when(eventRepository.findById("evt-1")).thenReturn(Optional.of(event));
+            when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            EventResponse response = eventService.cancelEvent("evt-1");
+
+            assertEquals("CANCELLED", response.getStatus(), "from " + status);
+            assertTrue(response.getUpdatedAt().isAfter(Instant.EPOCH), "from " + status);
+            verify(eventRepository).save(event);
+        }
+    }
+
+    @Test
+    void cancellingAnAlreadyCancelledEventIsIdempotent() {
+        when(eventRepository.findById("evt-1")).thenReturn(Optional.of(eventWithStatus("CANCELLED")));
+
+        EventResponse response = eventService.cancelEvent("evt-1");
+
+        assertEquals("CANCELLED", response.getStatus());
+        assertEquals(Instant.EPOCH, response.getUpdatedAt());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void completedEventCannotBeCancelled() {
+        when(eventRepository.findById("evt-1")).thenReturn(Optional.of(eventWithStatus("COMPLETED")));
+
+        assertThrows(EventStateConflictException.class, () -> eventService.cancelEvent("evt-1"));
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void cancellingUnknownEventThrowsNotFound() {
+        when(eventRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(EventNotFoundException.class, () -> eventService.cancelEvent("missing"));
+        verify(eventRepository, never()).save(any());
+    }
+
+    private EventRequest updateRequest(String status) {
+        EventRequest request = new EventRequest();
+        request.setName("Renamed");
+        request.setVenue("Venue");
+        request.setCity("City");
+        request.setStartTime(Instant.now().plusSeconds(3600));
+        request.setEndTime(Instant.now().plusSeconds(7200));
+        request.setSaleStartTime(Instant.now());
+        request.setSaleEndTime(Instant.now().plusSeconds(1800));
+        request.setStatus(status);
+        return request;
+    }
+
+    @Test
+    void updateCannotReopenACancelledEvent() {
+        when(eventRepository.findById("evt-1")).thenReturn(Optional.of(eventWithStatus("CANCELLED")));
+
+        assertThrows(EventStateConflictException.class, () -> eventService.updateEvent("evt-1", updateRequest("ON_SALE")));
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelledEventDetailsCanStillBeEditedWithoutChangingStatus() {
+        when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        for (String status : new String[]{null, "CANCELLED"}) {
+            when(eventRepository.findById("evt-1")).thenReturn(Optional.of(eventWithStatus("CANCELLED")));
+
+            EventResponse response = eventService.updateEvent("evt-1", updateRequest(status));
+
+            assertEquals("Renamed", response.getName());
+            assertEquals("CANCELLED", response.getStatus());
+        }
     }
 
     @Test

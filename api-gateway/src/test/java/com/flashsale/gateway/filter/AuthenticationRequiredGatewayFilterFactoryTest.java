@@ -143,6 +143,46 @@ class AuthenticationRequiredGatewayFilterFactoryTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    // --- requiredRole (e.g. "- AuthenticationRequired=ADMIN") ---
+
+    private static GatewayFilter adminOnlyFilter() {
+        AuthenticationRequiredGatewayFilterFactory.Config config = new AuthenticationRequiredGatewayFilterFactory.Config();
+        config.setRequiredRole("ADMIN");
+        return new AuthenticationRequiredGatewayFilterFactory(SECRET).apply(config);
+    }
+
+    @Test
+    void adminOnlyRouteForwardsAdminToken() {
+        Result result = run(adminOnlyFilter(), request(AuthServiceTokens.accessToken(SECRET, "admin-1", "ADMIN", 60_000)));
+
+        assertThat(result.forwarded).isNotNull();
+        assertThat(result.forwarded.getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+    }
+
+    @Test
+    void adminOnlyRouteRejectsOtherAuthenticatedRolesWith403() {
+        for (String role : new String[]{"CUSTOMER", "INTERNAL", "admin", "ADMIN "}) {
+            Result result = run(adminOnlyFilter(), request(AuthServiceTokens.accessToken(SECRET, "user-1", role, 60_000)));
+
+            assertThat(result.forwarded).as("role %s", role).isNull();
+            assertThat(result.status).as("role %s", role).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+    }
+
+    @Test
+    void adminOnlyRouteStillAuthenticatesBeforeCheckingRole() {
+        assertRejected(run(adminOnlyFilter(), MockServerHttpRequest.post("/api/v1/events").build()));
+        assertRejected(run(adminOnlyFilter(), request(AuthServiceTokens.accessToken(SECRET, "admin-1", "ADMIN", -1_000))));
+        assertRejected(run(adminOnlyFilter(), request(AuthServiceTokens.accessToken(OTHER_SECRET, "admin-1", "ADMIN", 60_000))));
+        assertRejected(run(adminOnlyFilter(), request(AuthServiceTokens.refreshToken(SECRET, "admin-1", 60_000))));
+    }
+
+    @Test
+    void routeArgumentBindsToRequiredRole() {
+        assertThat(new AuthenticationRequiredGatewayFilterFactory(SECRET).shortcutFieldOrder()).containsExactly("requiredRole");
+        assertThat(new AuthenticationRequiredGatewayFilterFactory.Config().getRequiredRole()).isNull();
+    }
+
     private static MockServerHttpRequest request(String token) {
         return MockServerHttpRequest.get("/api/v1/orders/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)

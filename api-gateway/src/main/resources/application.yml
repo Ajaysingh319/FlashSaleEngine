@@ -39,13 +39,14 @@ spring:
           predicates:
             - Path=/api/v1/events/{eventId}/ticket-types
             - Method=GET
-        - id: catalog-inventory-public
-          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+        # Ticket availability is owned by Reservation Service (PRD 6.4, TDD 5)
+        - id: reservation-inventory-by-event-public
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/events/{eventId}/inventory
             - Method=GET
-        - id: catalog-inventory-by-type-public
-          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+        - id: reservation-inventory-by-type-public
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/ticket-types/{ticketTypeId}/inventory
             - Method=GET
@@ -56,6 +57,14 @@ spring:
             - Path=/api/v1/auth/**
           filters:
             - AuthenticationRequired
+        # Catalog management writes - ADMIN only (must precede catalog-service-protected; routes match in order)
+        - id: catalog-management-admin
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/events/**, /api/v1/ticket-types/**
+            - Method=POST,PUT,PATCH,DELETE
+          filters:
+            - AuthenticationRequired=ADMIN
         - id: catalog-service-protected
           uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:

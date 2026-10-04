@@ -10,6 +10,7 @@ import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryConflictException;
+import com.flashsale.reservation.exception.InventoryNotFoundException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
@@ -95,9 +96,15 @@ public class ReservationService {
         }
     }
 
+    /** Current counts for one ticket type. Display only: reservations re-check inventory atomically (PRD 6.4). */
     public InventoryResponse getInventory(String ticketTypeId) {
         return inventoryRepository.findById(ticketTypeId).map(this::mapToResponse)
-                .orElseThrow(() -> new IllegalArgumentException("Inventory not found"));
+                .orElseThrow(() -> new InventoryNotFoundException(ticketTypeId));
+    }
+
+    /** Current counts for every ticket type of an event; empty when the event has no inventory set up. */
+    public List<InventoryResponse> getInventoryByEventId(String eventId) {
+        return inventoryRepository.findByEventIdOrderByTicketTypeIdAsc(eventId).stream().map(this::mapToResponse).toList();
     }
 
     public ReservationResponse createReservation(String userId, String idempotencyKey, ReservationRequest request) {

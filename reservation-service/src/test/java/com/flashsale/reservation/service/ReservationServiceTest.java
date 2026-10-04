@@ -10,6 +10,7 @@ import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryConflictException;
+import com.flashsale.reservation.exception.InventoryNotFoundException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
@@ -262,6 +263,47 @@ class ReservationServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> reservationService.initializeInventory(request));
         verifyNoInteractions(inventoryRepository);
+    }
+
+    @Test
+    void inventoryForTicketTypeIsReadWithoutModifyingIt() {
+        Inventory inventory = existingInventory("event-1", 100);
+        inventory.setAvailableQuantity(40);
+        inventory.setReservedQuantity(10);
+        inventory.setSoldQuantity(50);
+        when(inventoryRepository.findById("ticket-1")).thenReturn(Optional.of(inventory));
+
+        InventoryResponse response = reservationService.getInventory("ticket-1");
+
+        assertEquals(100, response.getTotalQuantity());
+        assertEquals(40, response.getAvailableQuantity());
+        assertEquals(10, response.getReservedQuantity());
+        assertEquals(50, response.getSoldQuantity());
+        verify(inventoryRepository, never()).save(any());
+        verifyNoInteractions(mongoTemplate, redisTemplate);
+    }
+
+    @Test
+    void missingTicketTypeInventoryIsNotFound() {
+        when(inventoryRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(InventoryNotFoundException.class, () -> reservationService.getInventory("missing"));
+    }
+
+    @Test
+    void eventInventoryListsEveryTicketTypeOfTheEvent() {
+        Inventory vip = existingInventory("event-1", 100);
+        Inventory regular = existingInventory("event-1", 500);
+        regular.setId("ticket-2");
+        regular.setTicketTypeId("ticket-2");
+        when(inventoryRepository.findByEventIdOrderByTicketTypeIdAsc("event-1")).thenReturn(List.of(vip, regular));
+        when(inventoryRepository.findByEventIdOrderByTicketTypeIdAsc("no-stock")).thenReturn(List.of());
+
+        List<InventoryResponse> responses = reservationService.getInventoryByEventId("event-1");
+
+        assertEquals(List.of("ticket-1", "ticket-2"), responses.stream().map(InventoryResponse::getTicketTypeId).toList());
+        assertEquals(500, responses.get(1).getTotalQuantity());
+        assertTrue(reservationService.getInventoryByEventId("no-stock").isEmpty());
     }
 
     private InventoryInitializationRequest initialSetup(String eventId, int total) {

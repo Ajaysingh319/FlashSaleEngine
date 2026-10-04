@@ -1,5 +1,6 @@
-package com.flashsale.reservation.security;
+package com.flashsale.catalog.security;
 
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,9 +11,16 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+/**
+ * Catalog reads are public (customers browse; Order and Reservation read events and ticket types without a token).
+ * Event and ticket-type management requires ADMIN (PRD 6.1), enforced here as well as at the API Gateway so that
+ * calling Catalog directly does not bypass it. Anything not listed is denied to non-admins by default.
+ */
 @Configuration
 @RequiredArgsConstructor
-public class ReservationSecurityConfig {
+public class CatalogSecurityConfig {
+    private static final String[] MANAGED_RESOURCES = {"/api/v1/events/**", "/api/v1/ticket-types/**"};
+
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
@@ -20,14 +28,15 @@ public class ReservationSecurityConfig {
         return http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health").permitAll()
-                        // Public, read-only ticket availability (PRD 16 Inventory API)
-                        .requestMatchers(HttpMethod.GET, "/api/v1/events/*/inventory", "/api/v1/ticket-types/*/inventory").permitAll()
-                        // Service-to-service API (Order Service tokens)
-                        .requestMatchers("/internal/**").hasRole("INTERNAL")
-                        // End-user API: Auth Service roles only, never service tokens
-                        .requestMatchers("/api/v1/**").hasAnyRole("CUSTOMER", "ADMIN")
-                        .anyRequest().authenticated())
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/api/v1/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, MANAGED_RESOURCES).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, MANAGED_RESOURCES).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, MANAGED_RESOURCES).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, MANAGED_RESOURCES).hasRole("ADMIN")
+                        .anyRequest().hasRole("ADMIN"))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> response.sendError(HttpStatus.UNAUTHORIZED.value()))
                         .accessDeniedHandler((request, response, exception) -> response.sendError(HttpStatus.FORBIDDEN.value())))

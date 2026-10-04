@@ -6,6 +6,7 @@ import com.flashsale.reservation.exception.EventNotFoundException;
 import com.flashsale.reservation.exception.EventNotOnSaleException;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryConflictException;
+import com.flashsale.reservation.exception.InventoryNotFoundException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
@@ -34,6 +35,11 @@ public class ReservationExceptionHandler {
     @ExceptionHandler(InventoryUnavailableException.class)
     ResponseEntity<ErrorResponse> handleInventoryUnavailable(InventoryUnavailableException exception) {
         return error(HttpStatus.CONFLICT, "INVENTORY_UNAVAILABLE", exception.getMessage());
+    }
+
+    @ExceptionHandler(InventoryNotFoundException.class)
+    ResponseEntity<ErrorResponse> handleInventoryNotFound(InventoryNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "INVENTORY_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(InventoryConflictException.class)

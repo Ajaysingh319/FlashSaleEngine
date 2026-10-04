@@ -1,5 +1,8 @@
 package com.flashsale.catalog.controller;
 
+import com.flashsale.catalog.security.CatalogSecurityConfig;
+import org.springframework.context.annotation.Import;
+
 import com.flashsale.catalog.service.EventService;
 import com.flashsale.catalog.service.TicketTypeService;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Path IDs must bind without relying on -parameters compiler metadata. */
 @WebMvcTest(controllers = CatalogController.class)
+@Import(CatalogSecurityConfig.class)
 class CatalogControllerPathVariableTest {
 
     @Autowired

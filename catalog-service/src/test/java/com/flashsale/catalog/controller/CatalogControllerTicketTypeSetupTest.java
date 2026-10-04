@@ -1,5 +1,10 @@
 package com.flashsale.catalog.controller;
 
+import com.flashsale.catalog.security.CatalogSecurityConfig;
+import org.springframework.context.annotation.Import;
+
+import static com.flashsale.catalog.security.CatalogTestTokens.asAdmin;
+
 import com.flashsale.catalog.dto.TicketTypeRequest;
 import com.flashsale.catalog.dto.TicketTypeResponse;
 import com.flashsale.catalog.exception.InventoryProvisioningException;
@@ -33,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = CatalogController.class)
+@Import(CatalogSecurityConfig.class)
 class CatalogControllerTicketTypeSetupTest {
 
     private static final String VALID_BODY = "{\"eventId\":\"event-1\",\"name\":\"VIP\",\"price\":4999.0,\"totalQuantity\":500}";
@@ -47,7 +53,7 @@ class CatalogControllerTicketTypeSetupTest {
     private EventService eventService;
 
     private ResultActions createTicketType(String body) throws Exception {
-        return mockMvc.perform(post("/api/v1/ticket-types").contentType(MediaType.APPLICATION_JSON).content(body));
+        return mockMvc.perform(post("/api/v1/ticket-types").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
     private static TicketTypeResponse ready() {
@@ -151,7 +157,7 @@ class CatalogControllerTicketTypeSetupTest {
         when(ticketTypeService.updateTicketType(eq("tt-1"), any()))
                 .thenThrow(new TicketTypeConflictException("totalQuantity of ticket type tt-1 cannot be changed after setup"));
 
-        mockMvc.perform(put("/api/v1/ticket-types/tt-1").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(put("/api/v1/ticket-types/tt-1").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.replace("500", "1000")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("TICKET_TYPE_CONFLICT"));

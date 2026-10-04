@@ -69,6 +69,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Spring Security: ADMIN-only event and ticket-type management (JWT, see CatalogSecurityConfig) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
         <!-- JWT: signs INTERNAL service tokens for Reservation Service's /internal/** API -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

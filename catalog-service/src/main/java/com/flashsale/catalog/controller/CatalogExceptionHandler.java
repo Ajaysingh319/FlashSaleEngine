@@ -1,6 +1,7 @@
 package com.flashsale.catalog.controller;
 
 import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.EventStateConflictException;
 import com.flashsale.catalog.exception.InventoryProvisioningException;
 import com.flashsale.catalog.exception.TicketTypeConflictException;
 import com.flashsale.catalog.exception.TicketTypeNotFoundException;
@@ -20,6 +21,11 @@ import java.util.stream.Collectors;
 /** Maps catalog errors to the standard error response (TDD section 49). */
 @RestControllerAdvice
 public class CatalogExceptionHandler {
+
+    @ExceptionHandler(EventStateConflictException.class)
+    ResponseEntity<ErrorResponse> handleEventStateConflict(EventStateConflictException exception) {
+        return error(HttpStatus.CONFLICT, "EVENT_STATE_CONFLICT", exception.getMessage());
+    }
 
     @ExceptionHandler(TicketTypeNotFoundException.class)
     ResponseEntity<ErrorResponse> handleTicketTypeNotFound(TicketTypeNotFoundException exception) {

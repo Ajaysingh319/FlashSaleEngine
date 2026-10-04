@@ -52,6 +52,12 @@ public class CatalogController {
         return ResponseEntity.ok(eventService.updateEvent(id, request));
     }
 
+    /** PRD 6.14 / 16: ADMIN only (CatalogSecurityConfig and the API Gateway). */
+    @PostMapping("/events/{id}/cancel")
+    public ResponseEntity<EventResponse> cancelEvent(@PathVariable("id") String id) {
+        return ResponseEntity.ok(eventService.cancelEvent(id));
+    }
+
     @DeleteMapping("/events/{id}")
     public ResponseEntity<Void> deleteEvent(@PathVariable("id") String id) {
         eventService.deleteEvent(id);

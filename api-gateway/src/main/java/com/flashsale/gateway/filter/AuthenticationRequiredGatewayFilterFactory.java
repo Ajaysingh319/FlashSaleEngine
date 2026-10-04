@@ -21,6 +21,7 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.Base64;
 import java.util.Date;
+import java.util.List;
 
 /**
  * Gateway filter to validate JWT for protected routes.
@@ -98,6 +99,10 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
                 if (isBlank(userId) || isBlank(role)) {
                     return onError(exchange, "Jwt token is not an access token", HttpStatus.UNAUTHORIZED);
                 }
+                // Authenticated but not permitted for this route
+                if (config.getRequiredRole() != null && !config.getRequiredRole().equals(role)) {
+                    return onError(exchange, "Role " + role + " is not permitted", HttpStatus.FORBIDDEN);
+                }
 
                 // Forward user info to backend services (overrides any client-supplied values)
                 ServerHttpRequest mutatedRequest = request.mutate()
@@ -125,8 +130,15 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
         return response.setComplete();
     }
 
+    /** Route arguments, e.g. {@code - AuthenticationRequired=ADMIN}; no argument means any valid access token. */
+    @Override
+    public List<String> shortcutFieldOrder() {
+        return List.of("requiredRole");
+    }
+
     @Data
     public static class Config {
-        // Placeholder for future configuration
+        /** Exact role claim required (e.g. ADMIN); null allows any authenticated role. */
+        private String requiredRole;
     }
 }

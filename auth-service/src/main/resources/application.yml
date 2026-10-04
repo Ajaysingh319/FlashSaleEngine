@@ -15,6 +15,10 @@ app:
     secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
     expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days in milliseconds
+  admin:
+    # Initial ADMIN account, created at startup only when both are set (no defaults; never commit real values)
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
 
 management:
   endpoints:

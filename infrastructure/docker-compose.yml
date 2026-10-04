@@ -203,6 +203,9 @@ services:
     environment:
       SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/auth_db?replicaSet=rs0"
       JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+      # Initial ADMIN account: created only when both are set in the host environment (empty by default)
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     depends_on:
       mongo-init:
         condition: service_completed_successfully

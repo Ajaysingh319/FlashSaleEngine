@@ -1,10 +1,12 @@
 package com.flashsale.catalog.service;
 
 import com.flashsale.catalog.document.Event;
+import com.flashsale.catalog.document.EventStatus;
 import com.flashsale.catalog.dto.EventRequest;
 import com.flashsale.catalog.dto.EventResponse;
 import com.flashsale.catalog.dto.EventSearchRequest;
 import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.EventStateConflictException;
 import com.flashsale.catalog.repository.EventRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -149,12 +151,34 @@ public class EventService {
         event.setSaleStartTime(request.getSaleStartTime());
         event.setSaleEndTime(request.getSaleEndTime());
         if (request.getStatus() != null) {
+            if (EventStatus.CANCELLED.name().equals(event.getStatus())
+                    && !EventStatus.CANCELLED.name().equals(request.getStatus())) {
+                throw new EventStateConflictException("Event " + id + " is cancelled and cannot be reopened");
+            }
             event.setStatus(request.getStatus());
         }
         event.setUpdatedAt(Instant.now());
 
         Event saved = eventRepository.save(event);
         return mapToResponse(saved);
+    }
+
+    /**
+     * Cancels an event (PRD 6.14). Reservation Service rejects new reservations for CANCELLED events (BR-010).
+     * Idempotent: cancelling an already cancelled event returns it unchanged. A COMPLETED event cannot be cancelled.
+     */
+    public EventResponse cancelEvent(String id) {
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> new EventNotFoundException("Event not found: " + id));
+        if (EventStatus.CANCELLED.name().equals(event.getStatus())) {
+            return mapToResponse(event);
+        }
+        if (EventStatus.COMPLETED.name().equals(event.getStatus())) {
+            throw new EventStateConflictException("Event " + id + " is completed and cannot be cancelled");
+        }
+        event.setStatus(EventStatus.CANCELLED.name());
+        event.setUpdatedAt(Instant.now());
+        return mapToResponse(eventRepository.save(event));
     }
 
     public void deleteEvent(String id) {
