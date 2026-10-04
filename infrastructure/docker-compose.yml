@@ -225,6 +225,8 @@ services:
       - "8082:8082"
     environment:
       SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/catalog_db?replicaSet=rs0"
+      RESERVATION_SERVICE_URL: http://reservation-service:8083
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
     depends_on:
       mongo-init:
         condition: service_completed_successfully

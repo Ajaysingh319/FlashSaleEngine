@@ -8,9 +8,7 @@ public class TicketTypeResponse {
     private String name;
     private Double price;
     private Integer totalQuantity;
-    private Integer availableQuantity;
-    private Integer reservedQuantity;
-    private Integer soldQuantity;
+    private String inventoryStatus;
     private String eventId;
     private Instant createdAt;
     private Instant updatedAt;
@@ -18,16 +16,13 @@ public class TicketTypeResponse {
     public TicketTypeResponse() {
     }
 
-    public TicketTypeResponse(String id, String name, Double price, Integer totalQuantity,
-                              Integer availableQuantity, Integer reservedQuantity, Integer soldQuantity,
+    public TicketTypeResponse(String id, String name, Double price, Integer totalQuantity, String inventoryStatus,
                               String eventId, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.name = name;
         this.price = price;
         this.totalQuantity = totalQuantity;
-        this.availableQuantity = availableQuantity;
-        this.reservedQuantity = reservedQuantity;
-        this.soldQuantity = soldQuantity;
+        this.inventoryStatus = inventoryStatus;
         this.eventId = eventId;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -65,28 +60,12 @@ public class TicketTypeResponse {
         this.totalQuantity = totalQuantity;
     }
 
-    public Integer getAvailableQuantity() {
-        return availableQuantity;
+    public String getInventoryStatus() {
+        return inventoryStatus;
     }
 
-    public void setAvailableQuantity(Integer availableQuantity) {
-        this.availableQuantity = availableQuantity;
-    }
-
-    public Integer getReservedQuantity() {
-        return reservedQuantity;
-    }
-
-    public void setReservedQuantity(Integer reservedQuantity) {
-        this.reservedQuantity = reservedQuantity;
-    }
-
-    public Integer getSoldQuantity() {
-        return soldQuantity;
-    }
-
-    public void setSoldQuantity(Integer soldQuantity) {
-        this.soldQuantity = soldQuantity;
+    public void setInventoryStatus(String inventoryStatus) {
+        this.inventoryStatus = inventoryStatus;
     }
 
     public String getEventId() {

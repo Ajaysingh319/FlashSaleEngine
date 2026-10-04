@@ -5,9 +5,11 @@ import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationStatus;
 import com.flashsale.reservation.document.ReservationIdempotency;
 import com.flashsale.reservation.dto.InventoryInitializationRequest;
+import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.exception.InventoryConflictException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
@@ -21,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.query.Query;
@@ -219,6 +222,69 @@ class ReservationServiceTest {
         when(inventoryRepository.insert(any(Inventory.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         assertEquals(3, reservationService.initializeInventory(request).getAvailableQuantity());
+    }
+
+    @Test
+    void retriedInventorySetupReturnsCurrentInventoryWithoutAddingStock() {
+        Inventory existing = existingInventory("event-1", 3);
+        existing.setAvailableQuantity(1);
+        existing.setReservedQuantity(1);
+        existing.setSoldQuantity(1);
+        when(inventoryRepository.insert(any(Inventory.class))).thenThrow(new DuplicateKeyException("ticket-1"));
+        when(inventoryRepository.findById("ticket-1")).thenReturn(Optional.of(existing));
+
+        InventoryResponse response = reservationService.initializeInventory(initialSetup("event-1", 3));
+
+        assertEquals(3, response.getTotalQuantity());
+        assertEquals(1, response.getAvailableQuantity());
+        assertEquals(1, response.getSoldQuantity());
+        verify(inventoryRepository, never()).save(any());
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void inventorySetupWithDifferentTotalOrEventIsAConflict() {
+        when(inventoryRepository.insert(any(Inventory.class))).thenThrow(new DuplicateKeyException("ticket-1"));
+        when(inventoryRepository.findById("ticket-1")).thenReturn(Optional.of(existingInventory("event-1", 3)));
+
+        assertThrows(InventoryConflictException.class,
+                () -> reservationService.initializeInventory(initialSetup("event-1", 5)));
+        assertThrows(InventoryConflictException.class,
+                () -> reservationService.initializeInventory(initialSetup("event-2", 3)));
+        verify(inventoryRepository, never()).save(any());
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void unbalancedInventorySetupIsRejectedBeforePersisting() {
+        InventoryInitializationRequest request = initialSetup("event-1", 3);
+        request.setAvailableQuantity(4);
+
+        assertThrows(IllegalArgumentException.class, () -> reservationService.initializeInventory(request));
+        verifyNoInteractions(inventoryRepository);
+    }
+
+    private InventoryInitializationRequest initialSetup(String eventId, int total) {
+        InventoryInitializationRequest request = new InventoryInitializationRequest();
+        request.setEventId(eventId);
+        request.setTicketTypeId("ticket-1");
+        request.setTotalQuantity(total);
+        request.setAvailableQuantity(total);
+        request.setReservedQuantity(0);
+        request.setSoldQuantity(0);
+        return request;
+    }
+
+    private Inventory existingInventory(String eventId, int total) {
+        Inventory inventory = new Inventory();
+        inventory.setId("ticket-1");
+        inventory.setTicketTypeId("ticket-1");
+        inventory.setEventId(eventId);
+        inventory.setTotalQuantity(total);
+        inventory.setAvailableQuantity(total);
+        inventory.setReservedQuantity(0);
+        inventory.setSoldQuantity(0);
+        return inventory;
     }
 
     @Test

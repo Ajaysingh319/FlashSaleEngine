@@ -1,6 +1,9 @@
 package com.flashsale.catalog.controller;
 
 import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.InventoryProvisioningException;
+import com.flashsale.catalog.exception.TicketTypeConflictException;
+import com.flashsale.catalog.exception.TicketTypeNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -17,6 +20,23 @@ import java.util.stream.Collectors;
 /** Maps catalog errors to the standard error response (TDD section 49). */
 @RestControllerAdvice
 public class CatalogExceptionHandler {
+
+    @ExceptionHandler(TicketTypeNotFoundException.class)
+    ResponseEntity<ErrorResponse> handleTicketTypeNotFound(TicketTypeNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "TICKET_TYPE_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(TicketTypeConflictException.class)
+    ResponseEntity<ErrorResponse> handleTicketTypeConflict(TicketTypeConflictException exception) {
+        return error(HttpStatus.CONFLICT, "TICKET_TYPE_CONFLICT", exception.getMessage());
+    }
+
+    /** Ticket type stays PENDING; repeating the same setup request completes it once Reservation is reachable. */
+    @ExceptionHandler(InventoryProvisioningException.class)
+    ResponseEntity<ErrorResponse> handleInventoryProvisioning(InventoryProvisioningException exception) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
+                "Inventory setup could not be completed; the ticket type is pending. Retry the same request.");
+    }
 
     @ExceptionHandler(EventNotFoundException.class)
     ResponseEntity<ErrorResponse> handleEventNotFound(EventNotFoundException exception) {

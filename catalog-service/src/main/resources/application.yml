@@ -8,6 +8,21 @@ spring:
     mongodb:
       uri: ${SPRING_DATA_MONGODB_URI:mongodb://mongo1:27017,mongo2:27017,mongo3:27017/catalog_db?replicaSet=rs0}
       auto-index-creation: true
+  jackson:
+    deserialization:
+      # Reject fractional JSON numbers for integer fields (e.g. totalQuantity 2.5) instead of truncating them.
+      accept-float-as-int: false
+
+reservation:
+  service:
+    url: ${RESERVATION_SERVICE_URL:http://localhost:8083}
+    connect-timeout: ${RESERVATION_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${RESERVATION_SERVICE_READ_TIMEOUT:5s}
+
+app:
+  jwt:
+    # Base64-encoded secret (>= 256 bits) shared with Reservation Service for INTERNAL service tokens
+    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
 
 management:
   endpoints:

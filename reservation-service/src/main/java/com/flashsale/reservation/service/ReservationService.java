@@ -9,6 +9,7 @@ import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.exception.InventoryConflictException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
@@ -80,7 +81,17 @@ public class ReservationService {
         try {
             return mapToResponse(inventoryRepository.insert(inventory));
         } catch (DuplicateKeyException exception) {
-            throw new IllegalStateException("Inventory already exists for ticket type " + request.getTicketTypeId(), exception);
+            // Idempotent setup: a retry of the same setup returns the current inventory without modifying it,
+            // so a retried request can never add stock. A different setup for the same ticket type is a conflict.
+            Inventory existing = inventoryRepository.findById(request.getTicketTypeId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Inventory for ticket type " + request.getTicketTypeId() + " could not be read", exception));
+            if (!request.getEventId().equals(existing.getEventId())
+                    || !request.getTotalQuantity().equals(existing.getTotalQuantity())) {
+                throw new InventoryConflictException("Inventory for ticket type " + request.getTicketTypeId()
+                        + " is already initialized with a different event or total quantity");
+            }
+            return mapToResponse(existing);
         }
     }
 

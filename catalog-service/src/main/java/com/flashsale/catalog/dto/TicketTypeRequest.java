@@ -3,8 +3,11 @@ package com.flashsale.catalog.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
 
+/**
+ * Ticket type setup. totalQuantity is the initial stock; Reservation Service initializes inventory with
+ * available = totalQuantity and reserved = sold = 0, and owns those counts from then on.
+ */
 public class TicketTypeRequest {
 
     @NotBlank
@@ -15,20 +18,8 @@ public class TicketTypeRequest {
     private Double price;
 
     @NotNull
-    @PositiveOrZero
+    @Positive
     private Integer totalQuantity;
-
-    @NotNull
-    @PositiveOrZero
-    private Integer availableQuantity;
-
-    @NotNull
-    @PositiveOrZero
-    private Integer reservedQuantity;
-
-    @NotNull
-    @PositiveOrZero
-    private Integer soldQuantity;
 
     @NotBlank
     private String eventId;
@@ -55,30 +46,6 @@ public class TicketTypeRequest {
 
     public void setTotalQuantity(Integer totalQuantity) {
         this.totalQuantity = totalQuantity;
-    }
-
-    public Integer getAvailableQuantity() {
-        return availableQuantity;
-    }
-
-    public void setAvailableQuantity(Integer availableQuantity) {
-        this.availableQuantity = availableQuantity;
-    }
-
-    public Integer getReservedQuantity() {
-        return reservedQuantity;
-    }
-
-    public void setReservedQuantity(Integer reservedQuantity) {
-        this.reservedQuantity = reservedQuantity;
-    }
-
-    public Integer getSoldQuantity() {
-        return soldQuantity;
-    }
-
-    public void setSoldQuantity(Integer soldQuantity) {
-        this.soldQuantity = soldQuantity;
     }
 
     public String getEventId() {

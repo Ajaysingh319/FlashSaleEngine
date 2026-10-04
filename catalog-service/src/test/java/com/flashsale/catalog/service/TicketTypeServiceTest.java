@@ -1,23 +1,33 @@
 package com.flashsale.catalog.service;
 
+import com.flashsale.catalog.client.ReservationInventoryClient;
 import com.flashsale.catalog.document.Event;
+import com.flashsale.catalog.document.InventoryStatus;
 import com.flashsale.catalog.document.TicketType;
 import com.flashsale.catalog.dto.TicketTypeRequest;
 import com.flashsale.catalog.dto.TicketTypeResponse;
+import com.flashsale.catalog.exception.EventNotFoundException;
+import com.flashsale.catalog.exception.InventoryProvisioningException;
+import com.flashsale.catalog.exception.TicketTypeConflictException;
+import com.flashsale.catalog.exception.TicketTypeNotFoundException;
 import com.flashsale.catalog.repository.EventRepository;
 import com.flashsale.catalog.repository.TicketTypeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class TicketTypeServiceTest {
@@ -28,187 +38,294 @@ class TicketTypeServiceTest {
     @Mock
     private EventRepository eventRepository;
 
+    @Mock
+    private ReservationInventoryClient reservationInventoryClient;
+
     @InjectMocks
     private TicketTypeService ticketTypeService;
+
+    private Event event;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        event = new Event();
+        event.setId("event-1");
+        when(eventRepository.findById("event-1")).thenReturn(Optional.of(event));
+        when(ticketTypeRepository.findByEventIdAndName(anyString(), anyString())).thenReturn(Optional.empty());
+        when(ticketTypeRepository.insert(any(TicketType.class))).thenAnswer(invocation -> {
+            TicketType inserted = invocation.getArgument(0);
+            inserted.setId("tt-1");
+            return inserted;
+        });
+        when(ticketTypeRepository.save(any(TicketType.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
-    @Test
-    void testCreateTicketType() {
+    private static TicketTypeRequest request(String name, double price, int totalQuantity) {
         TicketTypeRequest request = new TicketTypeRequest();
-        request.setName("VIP");
-        request.setPrice(100.0);
-        request.setTotalQuantity(100);
-        request.setAvailableQuantity(100);
-        request.setReservedQuantity(0);
-        request.setSoldQuantity(0);
-        request.setEventId("eventId");
-
-        Event event = new Event();
-        event.setId("eventId");
-        event.setName("Test Event");
-
-        TicketType savedTicketType = new TicketType();
-        savedTicketType.setId("ticketTypeId");
-        savedTicketType.setName(request.getName());
-        savedTicketType.setPrice(request.getPrice());
-        savedTicketType.setTotalQuantity(request.getTotalQuantity());
-        savedTicketType.setAvailableQuantity(request.getAvailableQuantity());
-        savedTicketType.setReservedQuantity(request.getReservedQuantity());
-        savedTicketType.setSoldQuantity(request.getSoldQuantity());
-        savedTicketType.setEvent(event);
-        savedTicketType.setCreatedAt(Instant.now());
-        savedTicketType.setUpdatedAt(Instant.now());
-
-        when(eventRepository.findById(request.getEventId())).thenReturn(Optional.of(event));
-        when(ticketTypeRepository.save(any(TicketType.class))).thenReturn(savedTicketType);
-
-        TicketTypeResponse response = ticketTypeService.createTicketType(request);
-
-        assertNotNull(response);
-        assertEquals("ticketTypeId", response.getId());
-        assertEquals(request.getName(), response.getName());
-        assertEquals(request.getPrice(), response.getPrice());
-        assertEquals(request.getTotalQuantity(), response.getTotalQuantity());
-        assertEquals(request.getAvailableQuantity(), response.getAvailableQuantity());
-        assertEquals(request.getReservedQuantity(), response.getReservedQuantity());
-        assertEquals(request.getSoldQuantity(), response.getSoldQuantity());
-        assertEquals(request.getEventId(), response.getEventId());
+        request.setName(name);
+        request.setPrice(price);
+        request.setTotalQuantity(totalQuantity);
+        request.setEventId("event-1");
+        return request;
     }
 
-    @Test
-    void testGetTicketTypeById() {
-        String id = "ticketTypeId";
-        Event event = new Event();
-        event.setId("eventId");
-
+    private TicketType existing(InventoryStatus status, double price, int totalQuantity) {
         TicketType ticketType = new TicketType();
-        ticketType.setId(id);
+        ticketType.setId("tt-1");
         ticketType.setName("VIP");
-        ticketType.setPrice(100.0);
-        ticketType.setTotalQuantity(100);
-        ticketType.setAvailableQuantity(100);
-        ticketType.setReservedQuantity(0);
-        ticketType.setSoldQuantity(0);
+        ticketType.setPrice(price);
+        ticketType.setTotalQuantity(totalQuantity);
+        ticketType.setInventoryStatus(status);
+        ticketType.setEventId("event-1");
         ticketType.setEvent(event);
         ticketType.setCreatedAt(Instant.now());
         ticketType.setUpdatedAt(Instant.now());
+        return ticketType;
+    }
 
-        when(ticketTypeRepository.findById(id)).thenReturn(Optional.of(ticketType));
+    // --- Setup: success, retry, conflict, failure ---
 
-        TicketTypeResponse response = ticketTypeService.getTicketTypeById(id);
+    @Test
+    void createSavesPendingThenInitializesInventoryThenMarksReady() {
+        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
 
-        assertNotNull(response);
-        assertEquals(id, response.getId());
+        var order = inOrder(ticketTypeRepository, reservationInventoryClient);
+        order.verify(ticketTypeRepository).insert(any(TicketType.class));
+        order.verify(reservationInventoryClient).initializeInventory("event-1", "tt-1", 500);
+        order.verify(ticketTypeRepository).save(argThat(saved -> saved.getInventoryStatus() == InventoryStatus.READY));
+
+        assertEquals("tt-1", response.getId());
         assertEquals("VIP", response.getName());
-        assertEquals(100.0, response.getPrice());
-        assertEquals(100, response.getTotalQuantity());
-        assertEquals(100, response.getAvailableQuantity());
-        assertEquals(0, response.getReservedQuantity());
-        assertEquals(0, response.getSoldQuantity());
-        assertEquals("eventId", response.getEventId());
+        assertEquals(4999.0, response.getPrice());
+        assertEquals(500, response.getTotalQuantity());
+        assertEquals("READY", response.getInventoryStatus());
+        assertEquals("event-1", response.getEventId());
     }
 
     @Test
-    void testGetTicketTypesByEventId() {
-        String eventId = "eventId";
-        Event event = new Event();
-        event.setId(eventId);
+    void insertedRecordIsPendingUntilReservationConfirms() {
+        doAnswer(invocation -> {
+            ArgumentCaptor<TicketType> inserted = ArgumentCaptor.forClass(TicketType.class);
+            verify(ticketTypeRepository).insert(inserted.capture());
+            assertEquals(InventoryStatus.PENDING, inserted.getValue().getInventoryStatus());
+            return null;
+        }).when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
 
-        TicketType tt1 = new TicketType();
-        tt1.setId("1");
-        tt1.setName("VIP");
-        tt1.setPrice(100.0);
-        tt1.setTotalQuantity(100);
-        tt1.setAvailableQuantity(100);
-        tt1.setReservedQuantity(0);
-        tt1.setSoldQuantity(0);
-        tt1.setEvent(event);
-
-        TicketType tt2 = new TicketType();
-        tt2.setId("2");
-        tt2.setName("Regular");
-        tt2.setPrice(50.0);
-        tt2.setTotalQuantity(200);
-        tt2.setAvailableQuantity(200);
-        tt2.setReservedQuantity(0);
-        tt2.setSoldQuantity(0);
-        tt2.setEvent(event);
-
-        when(ticketTypeRepository.findByEventId(eventId)).thenReturn(Arrays.asList(tt1, tt2));
-
-        List<TicketTypeResponse> responses = ticketTypeService.getTicketTypesByEventId(eventId);
-
-        assertEquals(2, responses.size());
-        assertEquals("VIP", responses.get(0).getName());
-        assertEquals("Regular", responses.get(1).getName());
+        ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
     }
 
     @Test
-    void testUpdateTicketType() {
-        String id = "ticketTypeId";
-        Event event = new Event();
-        event.setId("eventId");
+    void reservationFailureLeavesTicketTypePendingAndIsNotReportedAsSuccess() {
+        doThrow(new InventoryProvisioningException("down"))
+                .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
 
-        TicketType existing = new TicketType();
-        existing.setId(id);
-        existing.setName("VIP");
-        existing.setPrice(100.0);
-        existing.setTotalQuantity(100);
-        existing.setAvailableQuantity(100);
-        existing.setReservedQuantity(0);
-        existing.setSoldQuantity(0);
-        existing.setEvent(event);
-        existing.setCreatedAt(Instant.now());
-        existing.setUpdatedAt(Instant.now());
+        assertThrows(InventoryProvisioningException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
 
-        TicketTypeRequest request = new TicketTypeRequest();
-        request.setName("VIP Updated");
-        request.setPrice(150.0);
-        request.setTotalQuantity(150);
-        request.setAvailableQuantity(150);
-        request.setReservedQuantity(0);
-        request.setSoldQuantity(0);
-        request.setEventId("eventId");
+        verify(ticketTypeRepository).insert(argThat((TicketType t) -> t.getInventoryStatus() == InventoryStatus.PENDING));
+        verify(ticketTypeRepository, never()).save(any());
+    }
 
-        TicketType updated = new TicketType();
-        updated.setId(id);
-        updated.setName(request.getName());
-        updated.setPrice(request.getPrice());
-        updated.setTotalQuantity(request.getTotalQuantity());
-        updated.setAvailableQuantity(request.getAvailableQuantity());
-        updated.setReservedQuantity(request.getReservedQuantity());
-        updated.setSoldQuantity(request.getSoldQuantity());
-        updated.setEvent(event);
-        updated.setCreatedAt(existing.getCreatedAt());
-        updated.setUpdatedAt(Instant.now());
+    @Test
+    void retryOfPendingSetupCompletesItWithoutCreatingADuplicate() {
+        TicketType pending = existing(InventoryStatus.PENDING, 4999.0, 500);
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP")).thenReturn(Optional.of(pending));
 
-        when(ticketTypeRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(eventRepository.findById(request.getEventId())).thenReturn(Optional.of(event));
-        when(ticketTypeRepository.save(any(TicketType.class))).thenReturn(updated);
+        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
 
-        TicketTypeResponse response = ticketTypeService.updateTicketType(id, request);
+        verify(ticketTypeRepository, never()).insert(any(TicketType.class));
+        verify(reservationInventoryClient).initializeInventory("event-1", "tt-1", 500);
+        assertEquals("READY", response.getInventoryStatus());
+        assertEquals("tt-1", response.getId());
+    }
 
-        assertNotNull(response);
-        assertEquals(request.getName(), response.getName());
-        assertEquals(request.getPrice(), response.getPrice());
-        assertEquals(request.getTotalQuantity(), response.getTotalQuantity());
-        assertEquals(request.getAvailableQuantity(), response.getAvailableQuantity());
-        assertEquals(request.getReservedQuantity(), response.getReservedQuantity());
-        assertEquals(request.getSoldQuantity(), response.getSoldQuantity());
-        assertEquals(request.getEventId(), response.getEventId());
+    @Test
+    void retryOfReadySetupReturnsExistingWithoutCallingReservation() {
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP"))
+                .thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
+
+        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+
+        assertEquals("tt-1", response.getId());
+        assertEquals("READY", response.getInventoryStatus());
+        verifyNoInteractions(reservationInventoryClient);
+        verify(ticketTypeRepository, never()).insert(any(TicketType.class));
+        verify(ticketTypeRepository, never()).save(any());
+    }
+
+    @Test
+    void sameNameWithDifferentQuantityOrPriceIsAConflictAndNeverChangesStock() {
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP"))
+                .thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
+
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 600)));
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 5999.0, 500)));
+
+        verifyNoInteractions(reservationInventoryClient);
+        verify(ticketTypeRepository, never()).save(any());
+    }
+
+    @Test
+    void concurrentCreateOfSameTicketTypeContinuesWithTheWinningRecord() {
+        TicketType winner = existing(InventoryStatus.PENDING, 4999.0, 500);
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        when(ticketTypeRepository.insert(any(TicketType.class))).thenThrow(new DuplicateKeyException("event_name_unique"));
+
+        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+
+        assertEquals("tt-1", response.getId());
+        assertEquals("READY", response.getInventoryStatus());
+        verify(reservationInventoryClient).initializeInventory("event-1", "tt-1", 500);
+    }
+
+    @Test
+    void concurrentCreateWithDifferentValuesNeverProvisionsEitherRequestsValuesForTheOther() {
+        // Request A won the insert with totalQuantity 500; this request (B) asks for 800 under the same name.
+        TicketType winnerA = existing(InventoryStatus.PENDING, 4999.0, 500);
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winnerA));
+        when(ticketTypeRepository.insert(any(TicketType.class))).thenThrow(new DuplicateKeyException("event_name_unique"));
+
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 800)));
+
+        verifyNoInteractions(reservationInventoryClient);
+        verify(ticketTypeRepository, never()).save(any());
+        assertEquals(500, winnerA.getTotalQuantity());
+        assertEquals(InventoryStatus.PENDING, winnerA.getInventoryStatus());
+    }
+
+    @Test
+    void retryAfterReservationTimeoutReusesSameTicketTypeAndTotal() {
+        // Attempt 1: Reservation times out (it may or may not have created the inventory).
+        doThrow(new InventoryProvisioningException("Read timed out"))
+                .doNothing()
+                .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
+        assertThrows(InventoryProvisioningException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
+
+        ArgumentCaptor<TicketType> inserted = ArgumentCaptor.forClass(TicketType.class);
+        verify(ticketTypeRepository).insert(inserted.capture());
+        TicketType pending = inserted.getValue();
+        assertEquals(InventoryStatus.PENDING, pending.getInventoryStatus());
+
+        // Attempt 2: the client resends the same request and finds the PENDING record.
+        when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP")).thenReturn(Optional.of(pending));
+        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+
+        verify(ticketTypeRepository, times(1)).insert(any(TicketType.class));
+        verify(reservationInventoryClient, times(2)).initializeInventory("event-1", "tt-1", 500);
+        assertEquals("tt-1", response.getId());
+        assertEquals("READY", response.getInventoryStatus());
+    }
+
+    @Test
+    void reservationConflictIsSurfacedAndTicketTypeStaysPending() {
+        doThrow(new TicketTypeConflictException("different inventory"))
+                .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
+
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
+        verify(ticketTypeRepository, never()).save(any());
+    }
+
+    @Test
+    void createForUnknownEventIsRejectedBeforeAnyWrite() {
+        TicketTypeRequest request = request("VIP", 4999.0, 500);
+        request.setEventId("missing");
+        when(eventRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(EventNotFoundException.class, () -> ticketTypeService.createTicketType(request));
+        verify(ticketTypeRepository, never()).insert(any(TicketType.class));
+        verifyNoInteractions(reservationInventoryClient);
+    }
+
+    // --- Reads ---
+
+    @Test
+    void getTicketTypeByIdReturnsStatus() {
+        when(ticketTypeRepository.findById("tt-1")).thenReturn(Optional.of(existing(InventoryStatus.PENDING, 4999.0, 500)));
+
+        TicketTypeResponse response = ticketTypeService.getTicketTypeById("tt-1");
+
+        assertEquals("VIP", response.getName());
+        assertEquals(500, response.getTotalQuantity());
+        assertEquals("PENDING", response.getInventoryStatus());
+    }
+
+    @Test
+    void getUnknownTicketTypeThrowsNotFound() {
+        when(ticketTypeRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(TicketTypeNotFoundException.class, () -> ticketTypeService.getTicketTypeById("missing"));
+    }
+
+    @Test
+    void eventListingContainsOnlyReservableTicketTypes() {
+        when(ticketTypeRepository.findByEventIdAndInventoryStatus("event-1", InventoryStatus.READY))
+                .thenReturn(List.of(existing(InventoryStatus.READY, 4999.0, 500)));
+
+        List<TicketTypeResponse> responses = ticketTypeService.getTicketTypesByEventId("event-1");
+
+        assertEquals(1, responses.size());
+        assertEquals("READY", responses.get(0).getInventoryStatus());
+        verify(ticketTypeRepository, never()).findByEventId(anyString());
+    }
+
+    // --- Update / delete ---
+
+    @Test
+    void updateChangesNameAndPriceOnly() {
+        when(ticketTypeRepository.findById("tt-1")).thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
+
+        TicketTypeResponse response = ticketTypeService.updateTicketType("tt-1", request("VIP Gold", 5999.0, 500));
+
+        assertEquals("VIP Gold", response.getName());
+        assertEquals(5999.0, response.getPrice());
+        assertEquals(500, response.getTotalQuantity());
+        verifyNoInteractions(reservationInventoryClient);
+    }
+
+    @Test
+    void updateCannotChangeTotalQuantityOrEvent() {
+        when(ticketTypeRepository.findById("tt-1")).thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
+        TicketTypeRequest otherEvent = request("VIP", 4999.0, 500);
+        otherEvent.setEventId("event-2");
+
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.updateTicketType("tt-1", request("VIP", 4999.0, 1000)));
+        assertThrows(TicketTypeConflictException.class, () -> ticketTypeService.updateTicketType("tt-1", otherEvent));
+        verify(ticketTypeRepository, never()).save(any());
+        verifyNoInteractions(reservationInventoryClient);
+    }
+
+    @Test
+    void renamingToAnExistingNameIsAConflict() {
+        when(ticketTypeRepository.findById("tt-1")).thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
+        when(ticketTypeRepository.save(any(TicketType.class))).thenThrow(new DuplicateKeyException("event_name_unique"));
+
+        assertThrows(TicketTypeConflictException.class,
+                () -> ticketTypeService.updateTicketType("tt-1", request("Regular", 4999.0, 500)));
+    }
+
+    @Test
+    void updateOfUnknownTicketTypeThrowsNotFound() {
+        when(ticketTypeRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(TicketTypeNotFoundException.class,
+                () -> ticketTypeService.updateTicketType("missing", request("VIP", 4999.0, 500)));
     }
 
     @Test
     void testDeleteTicketType() {
-        String id = "ticketTypeId";
-        doNothing().when(ticketTypeRepository).deleteById(id);
+        ticketTypeService.deleteTicketType("tt-1");
 
-        ticketTypeService.deleteTicketType(id);
-
-        verify(ticketTypeRepository, times(1)).deleteById(id);
+        verify(ticketTypeRepository, times(1)).deleteById("tt-1");
     }
 }
