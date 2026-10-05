@@ -85,7 +85,28 @@ spring:
           predicates:
             - Path=/api/v1/ticket-types/{ticketTypeId}/inventory
             - Method=GET
+        # Admin monitoring (PRD 6.14, 16) - ADMIN only, routed to the service that owns the data
+        - id: admin-orders
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/admin/orders, /api/v1/admin/orders/**
+            - Method=GET
+          filters:
+            - AuthenticationRequired=ADMIN
+        - id: admin-reservations-and-statistics
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/admin/reservations/**, /api/v1/admin/events/{eventId}/statistics, /api/v1/admin/statistics
+            - Method=GET
+          filters:
+            - AuthenticationRequired=ADMIN
         # Protected endpoints - require authentication
+        - id: user-profile
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/users/me
+          filters:
+            - AuthenticationRequired
         - id: auth-service-protected
           uri: ${AUTH_SERVICE_URL:http://localhost:8081}
           predicates:

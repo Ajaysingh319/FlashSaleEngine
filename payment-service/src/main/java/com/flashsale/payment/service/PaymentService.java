@@ -46,6 +46,7 @@ public class PaymentService {
     /**
      * Refunds a successful payment whose order could not be fulfilled (Order's payment.refund_requested).
      * Exactly once per event; payments that were never charged, or are already refunded, are left unchanged.
+     * A completed refund is confirmed to Order with payment.refunded, written in the same transaction.
      */
     @Transactional
     public void processRefund(PaymentRequestEnvelope event) {
@@ -57,6 +58,7 @@ public class PaymentService {
                     paymentProvider.refund(payment);
                     payment.markRefunded(Instant.now());
                     paymentRepository.save(payment);
+                    paymentOutboxService.appendRefunded(payment);
                 });
         recordProcessed(event.eventId());
     }

@@ -1,5 +1,7 @@
 package com.flashsale.order.dto;
 
+import com.flashsale.order.document.Order;
+
 import java.time.Instant;
 import java.math.BigDecimal;
 
@@ -20,6 +22,23 @@ public class OrderResponse {
     private String paymentStatus;
     private Instant createdAt;
     private Instant updatedAt;
+
+    public static OrderResponse from(Order order) {
+        OrderResponse response = new OrderResponse();
+        response.setOrderId(order.getOrderId());
+        response.setUserId(order.getUserId());
+        response.setReservationId(order.getReservationId());
+        response.setEventId(order.getEventId());
+        response.setTicketTypeId(order.getTicketTypeId());
+        response.setQuantity(order.getQuantity());
+        response.setUnitPrice(order.getUnitPrice());
+        response.setTotalAmount(order.getTotalAmount());
+        response.setStatus(order.getStatus().toString());
+        response.setPaymentStatus(order.getPaymentStatus().toString());
+        response.setCreatedAt(order.getCreatedAt());
+        response.setUpdatedAt(order.getUpdatedAt());
+        return response;
+    }
 
     // Getters and setters
     public String getOrderId() {

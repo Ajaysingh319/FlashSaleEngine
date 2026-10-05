@@ -423,9 +423,7 @@ public class ReservationService {
     }
 
     private ReservationResponse mapToResponse(Reservation reservation) {
-        return new ReservationResponse(reservation.getId(), reservation.getEventId(), reservation.getTicketTypeId(), reservation.getUserId(),
-                reservation.getQuantity(), reservation.getStatus(), reservation.getCreatedAt(), reservation.getUpdatedAt(), reservation.getExpiresAt(),
-                reservation.getUnitPrice(), reservation.getAmount());
+        return ReservationResponse.from(reservation);
     }
 
     private InventoryResponse mapToResponse(Inventory inventory) {

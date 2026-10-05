@@ -99,25 +99,4 @@ public class AuthService {
         // We could implement a token blacklist if needed, but not required per PRD/TDD.
         // No server-side action needed for stateless JWT.
     }
-
-    public UserResponse getCurrentUser(String email) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        UserResponse response = new UserResponse();
-        response.setId(user.getId());
-        response.setEmail(user.getEmail());
-        response.setRole(user.getRole());
-        return response;
-    }
-
-    public UserResponse updateUser(String email, UserResponse userResponse) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // Only allow updating certain fields? For now, we can update role if needed.
-        // But per PRD/TDD, we might not need to update user via this endpoint.
-        // We'll just return current user for simplicity.
-        return getCurrentUser(email);
-    }
 }

@@ -3,6 +3,7 @@ package com.flashsale.order.document;
 import com.flashsale.order.exception.InvalidOrderStateException;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -11,7 +12,12 @@ import java.time.Instant;
 
 /** Order-owned purchase snapshot. Reservation and catalog data are copied only after validation. */
 @Document(collection = "orders")
-@CompoundIndex(name = "status_reservation_expiry_idx", def = "{'status': 1, 'reservationExpiresAt': 1}")
+@CompoundIndexes({
+        @CompoundIndex(name = "status_reservation_expiry_idx", def = "{'status': 1, 'reservationExpiresAt': 1}"),
+        // GET /orders/me and the admin order list (filter by event and status, newest first)
+        @CompoundIndex(name = "user_created_idx", def = "{'userId': 1, 'createdAt': -1}"),
+        @CompoundIndex(name = "event_status_created_idx", def = "{'eventId': 1, 'status': 1, 'createdAt': -1}")
+})
 public class Order {
     @Id private String id;
     @Indexed(unique = true) private String orderId;
@@ -60,6 +66,15 @@ public class Order {
     public void failPayment(Instant now) { requireAwaitingPaymentResult(); status = OrderStatus.PAYMENT_FAILED; paymentStatus = PaymentStatus.FAILED; updatedAt = now; }
     /** The charge succeeded but the reserved tickets are gone (reservation expired or cancelled): refund it. */
     public void cancelWithRefund(Instant now) { requireAwaitingPaymentResult(); status = OrderStatus.CANCELLED; paymentStatus = PaymentStatus.REFUND_REQUESTED; updatedAt = now; }
+    public boolean isAwaitingRefund() { return paymentStatus == PaymentStatus.REFUND_REQUESTED; }
+    /** Payment Service confirmed the refund of a cancelled, unfulfillable order. */
+    public void confirmRefund(Instant now) {
+        if (!isAwaitingRefund()) {
+            throw new InvalidOrderStateException("Order has no refund in progress");
+        }
+        paymentStatus = PaymentStatus.REFUNDED;
+        updatedAt = now;
+    }
     /** Checked before releasing the reservation, so an uncancellable order never touches Reservation Service. */
     public void requireCancellable() { requirePendingPayment("cancel"); }
     public void cancel(Instant now) { requirePendingPayment("cancel"); status = OrderStatus.CANCELLED; updatedAt = now; }

@@ -35,6 +35,7 @@ payment:
       completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}
       failed: ${PAYMENT_FAILED_TOPIC:payment.failed}
       refund-requested: ${PAYMENT_REFUND_REQUESTED_TOPIC:payment.refund_requested}
+      refunded: ${PAYMENT_REFUNDED_TOPIC:payment.refunded}
 
 app:
   jwt:

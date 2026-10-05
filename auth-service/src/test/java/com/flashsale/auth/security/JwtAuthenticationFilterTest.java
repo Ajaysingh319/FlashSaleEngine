@@ -39,7 +39,7 @@ class JwtAuthenticationFilterTest {
 
     private Authentication authenticate(String token) throws Exception {
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtils(60_000), userDetailsService);
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/users/me");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
         if (token != null) {
             request.addHeader("Authorization", "Bearer " + token);
         }

@@ -225,6 +225,31 @@ class OrderPaymentServiceTest {
     }
 
     @Test
+    void refundConfirmationMarksTheOrderRefunded() {
+        order.startPayment("pay-1", "MOCK_CARD", NOW);
+        order.cancelWithRefund(NOW);
+
+        service.processPaymentResult(result("payment.refunded", "pay-1", "REFUNDED"));
+
+        assertEquals(PaymentStatus.REFUNDED, order.getPaymentStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        verify(orderRepository).save(order);
+        verify(processedEventRepository).insert(any(ProcessedEvent.class));
+        verifyNoInteractions(reservationServiceClient, orderOutboxService);
+    }
+
+    @Test
+    void refundConfirmationForAnOrderWithoutARefundChangesNothing() {
+        order.startPayment("pay-1", "MOCK_CARD", NOW);
+
+        service.processPaymentResult(result("payment.refunded", "pay-1", "REFUNDED"));
+
+        assertEquals(PaymentStatus.PROCESSING, order.getPaymentStatus());
+        verify(orderRepository, never()).save(any());
+        verify(processedEventRepository).insert(any(ProcessedEvent.class));
+    }
+
+    @Test
     void duplicateResultEventIsIgnored() {
         when(processedEventRepository.existsByEventId("evt-1")).thenReturn(true);
 

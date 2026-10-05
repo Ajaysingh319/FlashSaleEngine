@@ -46,6 +46,7 @@ order:
       payment-refund-requested: ${PAYMENT_REFUND_REQUESTED_TOPIC:payment.refund_requested}
       payment-completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}
       payment-result-failed: ${PAYMENT_FAILED_TOPIC:payment.failed}
+      payment-refunded: ${PAYMENT_REFUNDED_TOPIC:payment.refunded}
 
 app:
   jwt:

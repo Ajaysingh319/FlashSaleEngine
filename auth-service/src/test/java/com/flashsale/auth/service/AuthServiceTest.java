@@ -157,23 +157,6 @@ class AuthServiceTest {
     }
 
     @Test
-    void testGetCurrentUser() {
-        String email = "test@example.com";
-        User user = new User();
-        user.setId("userId");
-        user.setEmail(email);
-        user.setRole("CUSTOMER");
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-
-        UserResponse response = authService.getCurrentUser(email);
-
-        assertNotNull(response);
-        assertEquals("userId", response.getId());
-        assertEquals(email, response.getEmail());
-        assertEquals("CUSTOMER", response.getRole());
-    }
-
-    @Test
     void testLogout() {
         // Should not throw any exception
         assertDoesNotThrow(() -> authService.logout());

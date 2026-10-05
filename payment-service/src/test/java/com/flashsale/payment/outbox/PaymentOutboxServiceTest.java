@@ -25,6 +25,7 @@ class PaymentOutboxServiceTest {
         PaymentKafkaProperties properties = new PaymentKafkaProperties();
         properties.getTopics().setCompleted("payment.completed");
         properties.getTopics().setFailed("payment.failed");
+        properties.getTopics().setRefunded("payment.refunded");
         outboxService = new PaymentOutboxService(repository, properties, new ObjectMapper().registerModule(new JavaTimeModule()));
     }
 
@@ -53,5 +54,21 @@ class PaymentOutboxServiceTest {
 
         assertEquals("payment.failed", timeout.getTopic());
         assertTrue(timeout.getPayload().contains("\"status\":\"TIMEOUT\""));
+    }
+
+    @Test
+    void refundIsConfirmedOnTheRefundedTopic() {
+        Payment payment = Payment.start("pay-1", "order-1", "user-1", new BigDecimal("9998.00"), "MOCK_CARD", Instant.now());
+        payment.complete("MOCK", PaymentOutcome.success("txn_1"), Instant.now());
+        payment.markRefunded(Instant.now());
+
+        outboxService.appendRefunded(payment);
+
+        ArgumentCaptor<PaymentOutboxEvent> event = ArgumentCaptor.forClass(PaymentOutboxEvent.class);
+        verify(repository).insert(event.capture());
+        assertEquals("payment.refunded", event.getValue().getTopic());
+        assertEquals("payment.refunded", event.getValue().getEventType());
+        assertEquals("order-1", event.getValue().getAggregateId());
+        assertTrue(event.getValue().getPayload().contains("\"status\":\"REFUNDED\""));
     }
 }

@@ -119,11 +119,13 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.REFUNDED, payment.getStatus());
         assertEquals("txn_1", payment.getTransactionId());
         verify(paymentRepository).save(payment);
+        verify(outboxService).appendRefunded(payment);
         verify(processedEventRepository).insert(any(PaymentProcessedEvent.class));
 
         when(processedEventRepository.existsByEventId("evt-r1")).thenReturn(true);
         service.processRefund(request("evt-r1"));
         verify(paymentRepository, times(1)).save(payment);
+        verify(outboxService, times(1)).appendRefunded(payment);
     }
 
     @Test
@@ -137,6 +139,7 @@ class PaymentServiceTest {
 
             assertEquals(outcome.status(), payment.getStatus());
             verify(paymentRepository, never()).save(any());
+            verify(outboxService, never()).appendRefunded(any());
         }
     }
 

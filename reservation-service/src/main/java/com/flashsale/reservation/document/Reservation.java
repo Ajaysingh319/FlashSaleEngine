@@ -14,6 +14,8 @@ import java.time.Instant;
 @Document(collection = "reservations")
 @CompoundIndex(name = "status_expiry_idx", def = "{'status': 1, 'expiresAt': 1}")
 @CompoundIndex(name = "user_event_status_idx", def = "{'userId': 1, 'eventId': 1, 'status': 1}")
+// Admin monitoring: an event's active reservations by expiry, and per-event status statistics
+@CompoundIndex(name = "event_status_expiry_idx", def = "{'eventId': 1, 'status': 1, 'expiresAt': 1}")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

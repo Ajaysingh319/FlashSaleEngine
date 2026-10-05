@@ -1,6 +1,7 @@
 package com.flashsale.auth.controller;
 
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.flashsale.auth.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -11,7 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.stream.Collectors;
 
-/** Maps invalid or unreadable request bodies to the shared 400 error envelope. Other errors keep their existing handling. */
+/** Maps invalid request bodies (400) and a missing account (404) to the shared error envelope. Other errors keep their existing handling. */
 @RestControllerAdvice
 public class AuthExceptionHandler {
 
@@ -36,9 +37,17 @@ public class AuthExceptionHandler {
         return badRequest("Request body is missing or is not valid JSON");
     }
 
+    @ExceptionHandler(UserNotFoundException.class)
+    ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", exception.getMessage());
+    }
+
     private ResponseEntity<ErrorResponse> badRequest(String message) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(false, new ErrorDetail("INVALID_REQUEST", message), Instant.now()));
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", message);
+    }
+
+    private ResponseEntity<ErrorResponse> error(HttpStatus status, String code, String message) {
+        return ResponseEntity.status(status).body(new ErrorResponse(false, new ErrorDetail(code, message), Instant.now()));
     }
 
     record ErrorResponse(boolean success, ErrorDetail error, Instant timestamp) { }

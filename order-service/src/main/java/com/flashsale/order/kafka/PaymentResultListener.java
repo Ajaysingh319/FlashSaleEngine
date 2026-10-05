@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -22,13 +23,17 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentResultListener {
-    /** A declined charge (FAILED) and a provider timeout (TIMEOUT) both mean the order was not paid (PRD 6.8). */
-    private static final Set<String> FAILURE_STATUSES = Set.of("FAILED", "TIMEOUT");
+    /** Statuses each Payment event may carry; a declined charge and a provider timeout both mean "not paid" (PRD 6.8). */
+    private static final Map<String, Set<String>> STATUSES_BY_EVENT_TYPE = Map.of(
+            "payment.completed", Set.of("SUCCESS"),
+            "payment.failed", Set.of("FAILED", "TIMEOUT"),
+            "payment.refunded", Set.of("REFUNDED"));
 
     private final ObjectMapper objectMapper;
     private final OrderPaymentService orderPaymentService;
 
-    @KafkaListener(topics = {"${order.kafka.topics.payment-completed}", "${order.kafka.topics.payment-result-failed}"},
+    @KafkaListener(topics = {"${order.kafka.topics.payment-completed}", "${order.kafka.topics.payment-result-failed}",
+            "${order.kafka.topics.payment-refunded}"},
             groupId = "${order.kafka.payment-result-consumer-group}")
     public void onPaymentResult(String message) {
         PaymentResultEnvelope event = parse(message);
@@ -62,14 +67,12 @@ public class PaymentResultListener {
                 || blank(payload.status()) || payload.amount() == null || !event.aggregateId().equals(payload.orderId())) {
             throw new IllegalArgumentException("Payment result payload is incomplete or refers to a different order");
         }
-        if ("payment.completed".equals(event.eventType()) && !"SUCCESS".equals(payload.status())) {
-            throw new IllegalArgumentException("Completed event must carry SUCCESS status");
-        }
-        if ("payment.failed".equals(event.eventType()) && !FAILURE_STATUSES.contains(payload.status())) {
-            throw new IllegalArgumentException("Failed event must carry FAILED or TIMEOUT status");
-        }
-        if (!"payment.completed".equals(event.eventType()) && !"payment.failed".equals(event.eventType())) {
+        Set<String> allowedStatuses = STATUSES_BY_EVENT_TYPE.get(event.eventType());
+        if (allowedStatuses == null) {
             throw new IllegalArgumentException("Unsupported payment result event type");
+        }
+        if (!allowedStatuses.contains(payload.status())) {
+            throw new IllegalArgumentException(event.eventType() + " event cannot carry status " + payload.status());
         }
     }
 

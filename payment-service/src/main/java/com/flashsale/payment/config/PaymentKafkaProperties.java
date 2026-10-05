@@ -22,9 +22,11 @@ public class PaymentKafkaProperties {
         private String completed;
         private String failed;
         private String refundRequested;
+        private String refunded;
         public String getRequested() { return requested; } public void setRequested(String requested) { this.requested = requested; }
         public String getCompleted() { return completed; } public void setCompleted(String completed) { this.completed = completed; }
         public String getFailed() { return failed; } public void setFailed(String failed) { this.failed = failed; }
         public String getRefundRequested() { return refundRequested; } public void setRefundRequested(String refundRequested) { this.refundRequested = refundRequested; }
+        public String getRefunded() { return refunded; } public void setRefunded(String refunded) { this.refunded = refunded; }
     }
 }

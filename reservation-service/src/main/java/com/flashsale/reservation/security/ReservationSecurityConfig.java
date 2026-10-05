@@ -25,6 +25,8 @@ public class ReservationSecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/events/*/inventory", "/api/v1/ticket-types/*/inventory").permitAll()
                         // Service-to-service API (Order Service tokens)
                         .requestMatchers("/internal/**").hasRole("INTERNAL")
+                        // Monitoring for administrators (PRD 6.14)
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         // End-user API: Auth Service roles only, never service tokens
                         .requestMatchers("/api/v1/**").hasAnyRole("CUSTOMER", "ADMIN")
                         .anyRequest().authenticated())

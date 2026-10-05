@@ -93,7 +93,7 @@ public class OrderService {
             throw new ReservationAlreadyUsedException(reservation.getReservationId());
         }
         orderOutboxService.appendCreated(order);
-        return toResponse(order);
+        return OrderResponse.from(order);
     }
 
     /**
@@ -105,14 +105,14 @@ public class OrderService {
     public OrderResponse cancelOrder(String orderId, String userId) {
         Order order = orderForUser(orderId, userId);
         if (order.getStatus() == OrderStatus.CANCELLED) {
-            return toResponse(order);
+            return OrderResponse.from(order);
         }
         order.requireCancellable();
         releaseReservation(order);
         order.cancel(Instant.now());
         orderRepository.save(order);
         orderOutboxService.appendCancelled(order);
-        return toResponse(order);
+        return OrderResponse.from(order);
     }
 
     /**
@@ -168,7 +168,7 @@ public class OrderService {
         }
         Order order = orderRepository.findByOrderId(idempotency.getOrderId())
                 .orElseThrow(() -> new IllegalStateException("Idempotency record refers to a missing order"));
-        return toResponse(order);
+        return OrderResponse.from(order);
     }
 
     private String fingerprint(OrderRequest request) {
@@ -176,30 +176,13 @@ public class OrderService {
     }
 
     public OrderResponse getOrder(String orderId, String userId) {
-        return toResponse(orderForUser(orderId, userId));
+        return OrderResponse.from(orderForUser(orderId, userId));
     }
 
     public List<OrderResponse> getMyOrders(String userId) {
         return orderRepository.findByUserId(userId).stream()
-                .map(this::toResponse)
+                .map(OrderResponse::from)
                 .collect(Collectors.toList());
-    }
-
-    private OrderResponse toResponse(Order order) {
-        OrderResponse response = new OrderResponse();
-        response.setOrderId(order.getOrderId());
-        response.setUserId(order.getUserId());
-        response.setReservationId(order.getReservationId());
-        response.setEventId(order.getEventId());
-        response.setTicketTypeId(order.getTicketTypeId());
-        response.setQuantity(order.getQuantity());
-        response.setUnitPrice(order.getUnitPrice());
-        response.setTotalAmount(order.getTotalAmount());
-        response.setStatus(order.getStatus().toString());
-        response.setPaymentStatus(order.getPaymentStatus().toString());
-        response.setCreatedAt(order.getCreatedAt());
-        response.setUpdatedAt(order.getUpdatedAt());
-        return response;
     }
 
     private Order orderForUser(String orderId, String userId) {

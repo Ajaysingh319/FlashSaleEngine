@@ -54,7 +54,7 @@ class AdminAccountInitializerTest {
     }
 
     private static User existingUser(String role) {
-        User user = new User("user-1", EMAIL, "$2a$10$existingHash", role, Instant.EPOCH, Instant.EPOCH);
+        User user = new User("user-1", EMAIL, null, "$2a$10$existingHash", role, Instant.EPOCH, Instant.EPOCH);
         return user;
     }
 

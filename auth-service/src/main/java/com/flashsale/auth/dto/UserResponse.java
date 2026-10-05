@@ -1,33 +1,13 @@
 package com.flashsale.auth.dto;
 
-public class UserResponse {
+import com.flashsale.auth.document.User;
 
-    private String id;
-    private String email;
-    private String role;
+import java.time.Instant;
 
-    // Getters and Setters
-    public String getId() {
-        return id;
-    }
+/** Current-user profile (PRD 4.1). Never carries the password hash. */
+public record UserResponse(String id, String email, String fullName, String role, Instant createdAt) {
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
+    public static UserResponse from(User user) {
+        return new UserResponse(user.getId(), user.getEmail(), user.getFullName(), user.getRole(), user.getCreatedAt());
     }
 }

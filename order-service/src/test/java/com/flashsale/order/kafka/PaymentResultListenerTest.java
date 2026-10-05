@@ -46,9 +46,17 @@ class PaymentResultListenerTest {
     }
 
     @Test
+    void refundConfirmationIsHandled() {
+        listener.onPaymentResult(event("payment.refunded", "REFUNDED"));
+
+        verify(orderPaymentService).processPaymentResult(any());
+    }
+
+    @Test
     void malformedOrContradictoryEventsAreRejectedForTheDeadLetterTopic() {
         for (String message : List.of("{not json", event("payment.failed", "SUCCESS"),
-                event("payment.completed", "TIMEOUT"), event("payment.completed", "FAILED"))) {
+                event("payment.completed", "TIMEOUT"), event("payment.completed", "FAILED"),
+                event("payment.refunded", "SUCCESS"), event("payment.unknown", "SUCCESS"))) {
             assertThrows(InvalidEventException.class, () -> listener.onPaymentResult(message));
         }
         verifyNoInteractions(orderPaymentService);

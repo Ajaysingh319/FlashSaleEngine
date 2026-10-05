@@ -34,6 +34,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrderPaymentService {
     static final String PAYMENT_COMPLETED = "payment.completed";
+    static final String PAYMENT_REFUNDED = "payment.refunded";
 
     private final OrderRepository orderRepository;
     private final IdempotencyRepository idempotencyRepository;
@@ -82,10 +83,20 @@ public class OrderPaymentService {
         Order order = orderRepository.findByOrderId(result.orderId())
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + result.orderId()));
         requireMatchingResult(order, result);
-        if (order.isAwaitingPaymentResult()) {
+        if (PAYMENT_REFUNDED.equals(event.eventType())) {
+            settleRefund(order);
+        } else if (order.isAwaitingPaymentResult()) {
             if (PAYMENT_COMPLETED.equals(event.eventType())) settleSuccess(order, result); else settleFailure(order, result);
         }
         recordProcessed(event);
+    }
+
+    /** Payment Service returned the money of an unfulfillable order: REFUND_REQUESTED -> REFUNDED. */
+    private void settleRefund(Order order) {
+        if (order.isAwaitingRefund()) {
+            order.confirmRefund(clock.instant());
+            orderRepository.save(order);
+        }
     }
 
     /**
