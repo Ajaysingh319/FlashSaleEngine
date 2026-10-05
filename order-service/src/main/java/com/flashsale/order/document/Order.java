@@ -44,6 +44,8 @@ public class Order {
 
     public void confirmPayment(Instant now) { requirePendingPayment("confirm payment"); status = OrderStatus.CONFIRMED; paymentStatus = PaymentStatus.SUCCEEDED; updatedAt = now; }
     public void failPayment(Instant now) { requirePendingPayment("fail payment"); status = OrderStatus.PAYMENT_FAILED; paymentStatus = PaymentStatus.FAILED; updatedAt = now; }
+    /** Checked before releasing the reservation, so an uncancellable order never touches Reservation Service. */
+    public void requireCancellable() { requirePendingPayment("cancel"); }
     public void cancel(Instant now) { requirePendingPayment("cancel"); status = OrderStatus.CANCELLED; updatedAt = now; }
     public void expire(Instant now) { requirePendingPayment("expire"); status = OrderStatus.EXPIRED; updatedAt = now; }
 

@@ -18,6 +18,8 @@ import com.flashsale.order.exception.ReservationNotFoundException;
 import com.flashsale.order.exception.ReservationOwnershipException;
 import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.ReservationExpiredException;
+import com.flashsale.order.exception.InvalidOrderStateException;
+import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
 import com.flashsale.order.repository.ProcessedEventRepository;
@@ -101,14 +103,39 @@ public class OrderService {
         return toResponse(order);
     }
 
-    /** User-requested cancellation; the order update and its event share one local transaction. */
+    /**
+     * User-requested cancellation of an order awaiting payment (PRD 6.13). The reservation is released first, so
+     * reserved tickets return to inventory; the order update and its event then share one local transaction.
+     * Idempotent: cancelling an already cancelled order returns it unchanged.
+     */
     @Transactional
     public OrderResponse cancelOrder(String orderId, String userId) {
         Order order = orderForUser(orderId, userId);
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            return toResponse(order);
+        }
+        order.requireCancellable();
+        releaseReservation(order);
         order.cancel(Instant.now());
         orderRepository.save(order);
         orderOutboxService.appendCancelled(order);
         return toResponse(order);
+    }
+
+    /**
+     * Releases the order's reservation. If Reservation reports it is no longer ACTIVE, its actual status decides:
+     * CANCELLED or EXPIRED means nothing is held any more; CONFIRMED means the tickets were sold to a completed
+     * payment, so the order must not be cancelled.
+     */
+    private void releaseReservation(Order order) {
+        try {
+            reservationServiceClient.releaseForCancelledOrder(order.getReservationId(), order.getOrderId(), order.getUserId());
+        } catch (ReservationLifecycleConflictException conflict) {
+            String status = reservationServiceClient.getReservationById(order.getReservationId()).getStatus();
+            if (!"CANCELLED".equals(status) && !"EXPIRED".equals(status)) {
+                throw new InvalidOrderStateException("Order cannot be cancelled: its reservation is " + status);
+            }
+        }
     }
 
     /** Reserved for a future Payment-result consumer; it deliberately contains no Kafka consumption logic. */

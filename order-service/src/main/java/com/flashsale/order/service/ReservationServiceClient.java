@@ -60,6 +60,14 @@ public class ReservationServiceClient {
         return transition(reservationId, "/cancel-after-payment-failure", orderId, userId, "CANCELLED");
     }
 
+    /**
+     * Releases the reservation of a user-cancelled order (PRD 6.13). Uses Reservation's order-bound release
+     * transition (ACTIVE -> CANCELLED, reserved -> available), which is idempotent for the same order.
+     */
+    public ReservationResponse releaseForCancelledOrder(String reservationId, String orderId, String userId) {
+        return transition(reservationId, "/cancel-after-payment-failure", orderId, userId, "CANCELLED");
+    }
+
     private ReservationResponse transition(String reservationId, String path, String orderId, String userId,
                                            String expectedStatus) {
         HttpHeaders headers = new HttpHeaders();
