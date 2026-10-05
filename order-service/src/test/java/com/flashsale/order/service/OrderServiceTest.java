@@ -59,6 +59,8 @@ class OrderServiceTest {
         ArgumentCaptor<Order> order = ArgumentCaptor.forClass(Order.class);
         verify(orderRepository).insert(order.capture());
         assertEquals("reservation-1", order.getValue().getReservationId());
+        assertNotNull(order.getValue().getReservationExpiresAt(), "order keeps the reservation expiry for order expiry");
+        assertTrue(order.getValue().getReservationExpiresAt().isAfter(Instant.now()));
         verify(orderOutboxService).appendCreated(order.getValue());
     }
 

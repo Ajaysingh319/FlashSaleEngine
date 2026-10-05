@@ -94,6 +94,7 @@ public class OrderService {
         Order order = new Order();
         order.initialize(orderId, userId, reservation.getReservationId(), reservation.getEventId(),
                 reservation.getTicketTypeId(), reservation.getQuantity(), unitPrice, now);
+        order.setReservationExpiresAt(reservation.getExpiresAt());
         try {
             orderRepository.insert(order);
         } catch (DuplicateKeyException exception) {

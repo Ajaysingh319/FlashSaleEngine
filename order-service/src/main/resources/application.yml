@@ -31,6 +31,9 @@ catalog:
     url: ${CATALOG_SERVICE_URL:http://localhost:8082}
 
 order:
+  expiry:
+    # How often unpaid orders past their reservation expiry are marked EXPIRED (milliseconds)
+    check-interval: ${ORDER_EXPIRY_CHECK_INTERVAL:60000}
   kafka:
     payment-result-consumer-group: ${ORDER_PAYMENT_RESULT_CONSUMER_GROUP:order-payment-results}
     outbox-publish-interval: ${ORDER_OUTBOX_PUBLISH_INTERVAL:5000}

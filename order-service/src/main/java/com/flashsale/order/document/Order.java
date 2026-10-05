@@ -2,6 +2,7 @@ package com.flashsale.order.document;
 
 import com.flashsale.order.exception.InvalidOrderStateException;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -10,6 +11,7 @@ import java.time.Instant;
 
 /** Order-owned purchase snapshot. Reservation and catalog data are copied only after validation. */
 @Document(collection = "orders")
+@CompoundIndex(name = "status_reservation_expiry_idx", def = "{'status': 1, 'reservationExpiresAt': 1}")
 public class Order {
     @Id private String id;
     @Indexed(unique = true) private String orderId;
@@ -25,6 +27,8 @@ public class Order {
     private PaymentStatus paymentStatus;
     private Instant createdAt;
     private Instant updatedAt;
+    /** Expiry of the backing reservation; an order still awaiting payment after this time expires (PRD 6.6, BR-005). */
+    private Instant reservationExpiresAt;
 
     public void initialize(String orderId, String userId, String reservationId, String eventId, String ticketTypeId,
                            int quantity, BigDecimal unitPrice, Instant now) {
@@ -80,4 +84,5 @@ public class Order {
     public PaymentStatus getPaymentStatus() { return paymentStatus; } public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; } public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Instant getReservationExpiresAt() { return reservationExpiresAt; } public void setReservationExpiresAt(Instant reservationExpiresAt) { this.reservationExpiresAt = reservationExpiresAt; }
 }
