@@ -28,6 +28,8 @@ public class OrderOutboxService {
     public void appendCancelled(Order order) { append(order, "order.cancelled", kafkaProperties.getTopics().getCancelled()); }
     public void appendConfirmed(Order order) { append(order, "order.confirmed", kafkaProperties.getTopics().getConfirmed()); }
     public void appendPaymentFailed(Order order) { append(order, "order.payment_failed", kafkaProperties.getTopics().getPaymentFailed()); }
+    public void appendPaymentRequested(Order order) { append(order, "payment.requested", kafkaProperties.getTopics().getPaymentRequested()); }
+    public void appendRefundRequested(Order order) { append(order, "payment.refund_requested", kafkaProperties.getTopics().getPaymentRefundRequested()); }
 
     private void append(Order order, String eventType, String topic) {
         Instant timestamp = Instant.now();
@@ -46,7 +48,8 @@ public class OrderOutboxService {
     private String serialize(String eventId, String eventType, Instant timestamp, Order order) {
         OrderLifecycleEventPayload payload = new OrderLifecycleEventPayload(order.getOrderId(), order.getUserId(),
                 order.getReservationId(), order.getEventId(), order.getTicketTypeId(), order.getQuantity(),
-                order.getUnitPrice(), order.getTotalAmount(), order.getStatus().name(), order.getPaymentStatus().name());
+                order.getUnitPrice(), order.getTotalAmount(), order.getStatus().name(), order.getPaymentStatus().name(),
+                order.getPaymentId(), order.getPaymentMethod());
         try {
             return objectMapper.writeValueAsString(new OrderEventEnvelope(eventId, eventType, timestamp,
                     AGGREGATE_TYPE, order.getOrderId(), payload));

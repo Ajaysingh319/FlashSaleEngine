@@ -2,9 +2,9 @@ package com.flashsale.payment.service;
 
 import com.flashsale.payment.document.Payment;
 import com.flashsale.payment.document.PaymentProcessedEvent;
-import com.flashsale.payment.document.PaymentStatus;
 import com.flashsale.payment.dto.PaymentRequestEnvelope;
 import com.flashsale.payment.dto.PaymentRequestPayload;
+import com.flashsale.payment.provider.PaymentProvider;
 import com.flashsale.payment.outbox.PaymentOutboxService;
 import com.flashsale.payment.repository.PaymentProcessedEventRepository;
 import com.flashsale.payment.repository.PaymentRepository;
@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /** Owns payment persistence and processing; Kafka listener remains a thin adapter. */
 @Service
@@ -21,7 +20,7 @@ import java.util.UUID;
 public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentProcessedEventRepository processedEventRepository;
-    private final MockPaymentProcessor paymentProcessor;
+    private final PaymentProvider paymentProvider;
     private final PaymentOutboxService paymentOutboxService;
 
     @Transactional
@@ -34,15 +33,31 @@ public class PaymentService {
             return;
         }
 
-        Instant now = Instant.now();
-        Payment payment = new Payment();
-        payment.initialize(UUID.randomUUID().toString(), request.orderId(), request.userId(), request.amount(), now);
+        Payment payment = Payment.start(request.paymentId(), request.orderId(), request.userId(), request.amount(),
+                request.paymentMethod(), Instant.now());
         paymentRepository.insert(payment);
 
-        PaymentStatus result = paymentProcessor.process(payment);
-        payment.complete(result, Instant.now());
+        payment.complete(paymentProvider.name(), paymentProvider.charge(payment), Instant.now());
         paymentRepository.save(payment);
         paymentOutboxService.appendResult(payment);
+        recordProcessed(event.eventId());
+    }
+
+    /**
+     * Refunds a successful payment whose order could not be fulfilled (Order's payment.refund_requested).
+     * Exactly once per event; payments that were never charged, or are already refunded, are left unchanged.
+     */
+    @Transactional
+    public void processRefund(PaymentRequestEnvelope event) {
+        if (processedEventRepository.existsByEventId(event.eventId())) return;
+
+        paymentRepository.findByPaymentId(event.payload().paymentId())
+                .filter(Payment::isRefundable)
+                .ifPresent(payment -> {
+                    paymentProvider.refund(payment);
+                    payment.markRefunded(Instant.now());
+                    paymentRepository.save(payment);
+                });
         recordProcessed(event.eventId());
     }
 

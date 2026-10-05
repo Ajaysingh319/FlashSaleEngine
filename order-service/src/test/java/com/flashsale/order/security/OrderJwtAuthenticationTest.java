@@ -2,7 +2,11 @@ package com.flashsale.order.security;
 
 import com.flashsale.order.controller.OrderController;
 import com.flashsale.order.service.InternalJwtTokenProvider;
+import com.flashsale.order.dto.PaymentInitiationRequest;
+import com.flashsale.order.dto.PaymentInitiationResponse;
+import com.flashsale.order.service.OrderPaymentService;
 import com.flashsale.order.service.OrderService;
+import org.springframework.http.MediaType;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -22,10 +26,13 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -46,6 +53,9 @@ class OrderJwtAuthenticationTest {
 
     @MockBean
     private OrderService orderService;
+
+    @MockBean
+    private OrderPaymentService orderPaymentService;
 
     /** Mirrors Auth Service JwtUtils.generateAccessToken / generateRefreshToken. */
     private static String authToken(String secret, String userId, String role, long ttlMillis) {
@@ -88,6 +98,40 @@ class OrderJwtAuthenticationTest {
                 .andExpect(status().isOk());
 
         verify(orderService).cancelOrder("ord-123", "user-1");
+    }
+
+    // --- POST /api/v1/orders/{orderId}/payment (PRD 6.8, TDD 48) ---
+
+    @Test
+    void paymentInitiationIsAcceptedAsProcessing() throws Exception {
+        when(orderPaymentService.initiatePayment(eq("user-1"), eq("key-1"), eq("ord-123"), any()))
+                .thenReturn(new PaymentInitiationResponse("pay-1", "ord-123", "PROCESSING"));
+
+        mockMvc.perform(post("/api/v1/orders/ord-123/payment")
+                        .header("Authorization", "Bearer " + authToken(SECRET, "user-1", "CUSTOMER", 60_000))
+                        .header("Idempotency-Key", "key-1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"paymentMethod\":\"MOCK_CARD\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.paymentId").value("pay-1"))
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+
+        verify(orderPaymentService).initiatePayment("user-1", "key-1", "ord-123", new PaymentInitiationRequest("MOCK_CARD"));
+    }
+
+    @Test
+    void paymentInitiationRequiresKeyAndSupportedMethod() throws Exception {
+        String token = "Bearer " + authToken(SECRET, "user-1", "CUSTOMER", 60_000);
+
+        mockMvc.perform(post("/api/v1/orders/ord-123/payment").header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"paymentMethod\":\"MOCK_CARD\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v1/orders/ord-123/payment").header("Authorization", token).header("Idempotency-Key", "k")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"paymentMethod\":\"REAL_VISA\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v1/orders/ord-123/payment").header("Idempotency-Key", "k")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"paymentMethod\":\"MOCK_CARD\"}"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(orderPaymentService);
     }
 
     @Test

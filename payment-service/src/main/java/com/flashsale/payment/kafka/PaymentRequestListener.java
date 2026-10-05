@@ -10,7 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-/** Kafka adapter only: parsing and validation stay separate from payment processing. */
+import java.util.Optional;
+
+/**
+ * Kafka adapter for Order-originated payment events (charge and refund requests). Parsing and validation stay
+ * here; all processing is delegated to PaymentService. Malformed events are logged and skipped.
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -20,15 +25,23 @@ public class PaymentRequestListener {
 
     @KafkaListener(topics = "${payment.kafka.topics.requested}", groupId = "${payment.kafka.consumer-group}")
     public void onPaymentRequested(String message) {
-        PaymentRequestEnvelope event;
+        parse(message).ifPresent(paymentService::processRequest);
+    }
+
+    @KafkaListener(topics = "${payment.kafka.topics.refund-requested}", groupId = "${payment.kafka.consumer-group}")
+    public void onRefundRequested(String message) {
+        parse(message).ifPresent(paymentService::processRefund);
+    }
+
+    private Optional<PaymentRequestEnvelope> parse(String message) {
         try {
-            event = objectMapper.readValue(message, PaymentRequestEnvelope.class);
+            PaymentRequestEnvelope event = objectMapper.readValue(message, PaymentRequestEnvelope.class);
             validate(event);
+            return Optional.of(event);
         } catch (JsonProcessingException | IllegalArgumentException exception) {
-            log.warn("Ignoring malformed payment request event: {}", exception.getMessage());
-            return;
+            log.warn("Ignoring malformed payment event: {}", exception.getMessage());
+            return Optional.empty();
         }
-        paymentService.processRequest(event);
     }
 
     private void validate(PaymentRequestEnvelope event) {
@@ -36,8 +49,9 @@ public class PaymentRequestListener {
             throw new IllegalArgumentException("eventId and payload are required");
         }
         PaymentRequestPayload payload = event.payload();
-        if (blank(payload.orderId()) || blank(payload.userId()) || payload.amount() == null) {
-            throw new IllegalArgumentException("payload orderId, userId and amount are required");
+        if (blank(payload.orderId()) || blank(payload.userId()) || payload.amount() == null
+                || blank(payload.paymentId()) || blank(payload.paymentMethod())) {
+            throw new IllegalArgumentException("payload orderId, userId, amount, paymentId and paymentMethod are required");
         }
     }
 

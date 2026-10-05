@@ -7,6 +7,7 @@ import com.flashsale.order.dto.OrderResponse;
 import com.flashsale.order.dto.ReservationResponse;
 import com.flashsale.order.exception.IdempotencyConflictException;
 import com.flashsale.order.exception.InvalidOrderStateException;
+import com.flashsale.order.exception.ReservationNotActiveException;
 import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.UnauthorizedOrderAccessException;
@@ -24,6 +25,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,17 +38,15 @@ class OrderServiceTest {
     @Mock private OrderRepository orderRepository;
     @Mock private IdempotencyRepository idempotencyRepository;
     @Mock private ReservationServiceClient reservationServiceClient;
-    @Mock private CatalogServiceClient catalogServiceClient;
     @Mock private OrderOutboxService orderOutboxService;
     @InjectMocks private OrderService orderService;
 
     @Test
-    void createsOrderFromActiveOwnedReservationAndSnapshotsCatalogPrice() {
+    void createsOrderAtTheReservationsSnapshotPrice() {
         OrderRequest request = request("reservation-1");
         ReservationResponse reservation = activeReservation();
         when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.empty());
         when(reservationServiceClient.getReservationById("reservation-1")).thenReturn(reservation);
-        when(catalogServiceClient.getUnitPrice("event-1", "ticket-type-1")).thenReturn(new BigDecimal("19.95"));
         when(orderRepository.existsByReservationId("reservation-1")).thenReturn(false);
         when(orderRepository.insert(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -78,7 +78,7 @@ class OrderServiceTest {
         OrderResponse response = orderService.createOrder("user-1", "key-1", request("reservation-1"));
 
         assertEquals("order-1", response.getOrderId());
-        verifyNoInteractions(reservationServiceClient, catalogServiceClient);
+        verifyNoInteractions(reservationServiceClient);
     }
 
     @Test
@@ -96,6 +96,27 @@ class OrderServiceTest {
         OrderRequest request = new OrderRequest();
         request.setReservationId(reservationId);
         return request;
+    }
+
+    @Test
+    void reservationWithoutAConsistentPriceCannotBecomeAnOrder() {
+        ReservationResponse noPrice = activeReservation();
+        noPrice.setUnitPrice(null);
+        ReservationResponse wrongAmount = activeReservation();
+        wrongAmount.setAmount(new BigDecimal("40.00"));
+        ReservationResponse freeTickets = activeReservation();
+        freeTickets.setUnitPrice(BigDecimal.ZERO);
+        freeTickets.setAmount(BigDecimal.ZERO);
+
+        for (ReservationResponse reservation : List.of(noPrice, wrongAmount, freeTickets)) {
+            when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.empty());
+            when(reservationServiceClient.getReservationById("reservation-1")).thenReturn(reservation);
+
+            assertThrows(ReservationNotActiveException.class,
+                    () -> orderService.createOrder("user-1", "key-1", request("reservation-1")));
+        }
+        verify(orderRepository, never()).insert(any(Order.class));
+        verifyNoInteractions(orderOutboxService);
     }
 
     // --- Cancellation (PRD 6.13) ---
@@ -147,8 +168,10 @@ class OrderServiceTest {
     @Test
     void confirmedOrFailedOrdersCannotBeCancelledAndReservationIsUntouched() {
         Order confirmed = pendingOrder();
+        confirmed.startPayment("pay-1", "MOCK_CARD", Instant.now());
         confirmed.confirmPayment(Instant.now());
         Order failed = pendingOrder();
+        failed.startPayment("pay-2", "MOCK_CARD", Instant.now());
         failed.failPayment(Instant.now());
 
         for (Order order : new Order[]{confirmed, failed}) {
@@ -224,6 +247,8 @@ class OrderServiceTest {
         response.setQuantity(2);
         response.setStatus("ACTIVE");
         response.setExpiresAt(Instant.now().plusSeconds(600));
+        response.setUnitPrice(new BigDecimal("19.95"));
+        response.setAmount(new BigDecimal("39.90"));
         return response;
     }
 

@@ -2,10 +2,7 @@ package com.flashsale.order.service;
 
 import com.flashsale.order.document.Order;
 import com.flashsale.order.document.Idempotency;
-import com.flashsale.order.document.ProcessedEvent;
 import com.flashsale.order.document.OrderStatus;
-import com.flashsale.order.dto.PaymentResultEnvelope;
-import com.flashsale.order.dto.PaymentResultPayload;
 import com.flashsale.order.dto.OrderRequest;
 import com.flashsale.order.dto.OrderResponse;
 import com.flashsale.order.dto.ReservationResponse;
@@ -22,7 +19,6 @@ import com.flashsale.order.exception.InvalidOrderStateException;
 import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
-import com.flashsale.order.repository.ProcessedEventRepository;
 import com.flashsale.order.outbox.OrderOutboxService;
 import org.springframework.dao.DuplicateKeyException;
 import lombok.RequiredArgsConstructor;
@@ -32,9 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -48,9 +41,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final IdempotencyRepository idempotencyRepository;
-    private final ProcessedEventRepository processedEventRepository;
     private final ReservationServiceClient reservationServiceClient;
-    private final CatalogServiceClient catalogServiceClient;
     private final OrderOutboxService orderOutboxService;
 
     @Transactional
@@ -68,7 +59,8 @@ public class OrderService {
         ReservationResponse reservation = reservationServiceClient.getReservationById(request.getReservationId());
         validateReservation(reservation, userId, request.getReservationId());
 
-        BigDecimal unitPrice = catalogServiceClient.getUnitPrice(reservation.getEventId(), reservation.getTicketTypeId());
+        // The price was snapshotted on the reservation (TDD 16); the order charges exactly that amount.
+        BigDecimal unitPrice = reservation.getUnitPrice();
         Instant now = Instant.now();
         String orderId = UUID.randomUUID().toString();
         Idempotency idempotency = new Idempotency();
@@ -139,68 +131,6 @@ public class OrderService {
         }
     }
 
-    /** Reserved for a future Payment-result consumer; it deliberately contains no Kafka consumption logic. */
-    @Transactional
-    public OrderResponse confirmPayment(String orderId) {
-        Order order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-        order.confirmPayment(Instant.now());
-        orderRepository.save(order);
-        orderOutboxService.appendConfirmed(order);
-        return toResponse(order);
-    }
-
-    /** Reserved for a future Payment-result consumer; it deliberately contains no Kafka consumption logic. */
-    @Transactional
-    public OrderResponse failPayment(String orderId) {
-        Order order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-        order.failPayment(Instant.now());
-        orderRepository.save(order);
-        orderOutboxService.appendPaymentFailed(order);
-        return toResponse(order);
-    }
-
-    /** Handles one validated Payment result together with its idempotency record and lifecycle event. */
-    @Transactional
-    public void processPaymentResult(PaymentResultEnvelope event) {
-        if (processedEventRepository.existsByEventId(event.eventId())) return;
-
-        PaymentResultPayload result = event.payload();
-        Order order = orderRepository.findByOrderId(result.orderId())
-                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + result.orderId()));
-        if (!order.getUserId().equals(result.userId())) {
-            throw new IllegalArgumentException("Payment result user does not match the order");
-        }
-        if (order.getTotalAmount() == null || result.amount() == null
-                || order.getTotalAmount().compareTo(result.amount()) != 0) {
-            throw new IllegalArgumentException("Payment result amount does not match the order");
-        }
-        if (order.getPaymentId() != null && !order.getPaymentId().equals(result.paymentId())) {
-            throw new IllegalArgumentException("Payment result paymentId does not match the order");
-        }
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            recordProcessed(event);
-            return;
-        }
-
-        boolean succeeded = "payment.completed".equals(event.eventType());
-        if (succeeded) {
-            // Call reservation service to confirm the reservation
-            reservationServiceClient.confirmReservation(order.getReservationId(), order.getOrderId(), order.getUserId());
-            // Only after successful reservation confirmation, update order to CONFIRMED
-            order.applyPaymentResult(result.paymentId(), true, Instant.now());
-        } else {
-            // Call reservation service to release the reservation
-            reservationServiceClient.cancelAfterPaymentFailure(order.getReservationId(), order.getOrderId(), order.getUserId());
-            // After successful release, update order to PAYMENT_FAILED
-            order.applyPaymentResult(result.paymentId(), false, Instant.now());
-        }
-        orderRepository.save(order);
-        if (succeeded) orderOutboxService.appendConfirmed(order); else orderOutboxService.appendPaymentFailed(order);
-        recordProcessed(event);
-    }
-
     private void validateReservation(ReservationResponse reservation, String userId, String requestedReservationId) {
         if (reservation == null || reservation.getReservationId() == null
                 || !requestedReservationId.equals(reservation.getReservationId())) {
@@ -219,6 +149,17 @@ public class OrderService {
                 || reservation.getQuantity() == null || reservation.getQuantity() < 1) {
             throw new ReservationNotActiveException("Reservation contains invalid order data");
         }
+        if (!hasConsistentPrice(reservation)) {
+            throw new ReservationNotActiveException("Reservation has no valid price snapshot");
+        }
+    }
+
+    /** unitPrice must be positive and amount must equal unitPrice x quantity, so the order total matches the hold. */
+    private static boolean hasConsistentPrice(ReservationResponse reservation) {
+        BigDecimal unitPrice = reservation.getUnitPrice();
+        BigDecimal amount = reservation.getAmount();
+        return unitPrice != null && unitPrice.signum() > 0 && amount != null
+                && amount.compareTo(unitPrice.multiply(BigDecimal.valueOf(reservation.getQuantity()))) == 0;
     }
 
     private OrderResponse replayOrReject(Idempotency idempotency, String fingerprint) {
@@ -231,13 +172,7 @@ public class OrderService {
     }
 
     private String fingerprint(OrderRequest request) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(request.getReservationId().getBytes(StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is unavailable", exception);
-        }
+        return RequestFingerprint.of(request.getReservationId());
     }
 
     public OrderResponse getOrder(String orderId, String userId) {
@@ -274,13 +209,5 @@ public class OrderService {
             throw new UnauthorizedOrderAccessException("User not authorized to access this order");
         }
         return order;
-    }
-
-    private void recordProcessed(PaymentResultEnvelope event) {
-        ProcessedEvent processed = new ProcessedEvent();
-        processed.setEventId(event.eventId());
-        processed.setEventType(event.eventType());
-        processed.setProcessedAt(Instant.now());
-        processedEventRepository.insert(processed);
     }
 }

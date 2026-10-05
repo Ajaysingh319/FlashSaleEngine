@@ -2,6 +2,9 @@ package com.flashsale.order.controller;
 
 import com.flashsale.order.dto.OrderRequest;
 import com.flashsale.order.dto.OrderResponse;
+import com.flashsale.order.dto.PaymentInitiationRequest;
+import com.flashsale.order.dto.PaymentInitiationResponse;
+import com.flashsale.order.service.OrderPaymentService;
 import com.flashsale.order.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +22,7 @@ import java.util.List;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderPaymentService orderPaymentService;
 
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(
@@ -46,5 +50,16 @@ public class OrderController {
         String userId = principal.getName();
         List<OrderResponse> responses = orderService.getMyOrders(userId);
         return ResponseEntity.ok(responses);
+    }
+
+    /** PRD 6.8 / TDD 48: accepted immediately; the payment result arrives asynchronously. */
+    @PostMapping("/{orderId}/payment")
+    public ResponseEntity<PaymentInitiationResponse> initiatePayment(
+            @PathVariable("orderId") String orderId,
+            Principal principal,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody PaymentInitiationRequest request) {
+        return ResponseEntity.accepted()
+                .body(orderPaymentService.initiatePayment(principal.getName(), idempotencyKey, orderId, request));
     }
 }

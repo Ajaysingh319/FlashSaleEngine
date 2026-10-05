@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashsale.payment.config.PaymentKafkaProperties;
 import com.flashsale.payment.document.Payment;
+import com.flashsale.payment.document.PaymentStatus;
 import com.flashsale.payment.document.PaymentOutboxEvent;
 import com.flashsale.payment.dto.PaymentResultEnvelope;
 import com.flashsale.payment.dto.PaymentResultPayload;
@@ -25,9 +26,9 @@ public class PaymentOutboxService {
     public void appendResult(Payment payment) {
         Instant timestamp = Instant.now();
         String eventId = UUID.randomUUID().toString();
-        String topic = payment.getStatus().name().equals("SUCCESS")
+        String topic = payment.getStatus() == PaymentStatus.SUCCESS
                 ? kafkaProperties.getTopics().getCompleted() : kafkaProperties.getTopics().getFailed();
-        String eventType = payment.getStatus().name().equals("SUCCESS") ? "payment.completed" : "payment.failed";
+        String eventType = payment.getStatus() == PaymentStatus.SUCCESS ? "payment.completed" : "payment.failed";
         PaymentOutboxEvent event = new PaymentOutboxEvent();
         event.setEventId(eventId);
         event.setAggregateId(payment.getOrderId());

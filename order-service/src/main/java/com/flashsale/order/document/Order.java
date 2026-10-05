@@ -23,6 +23,7 @@ public class Order {
     private BigDecimal unitPrice;
     private BigDecimal totalAmount;
     private String paymentId;
+    private String paymentMethod;
     private OrderStatus status;
     private PaymentStatus paymentStatus;
     private Instant createdAt;
@@ -46,8 +47,19 @@ public class Order {
         this.updatedAt = now;
     }
 
-    public void confirmPayment(Instant now) { requirePendingPayment("confirm payment"); status = OrderStatus.CONFIRMED; paymentStatus = PaymentStatus.SUCCEEDED; updatedAt = now; }
-    public void failPayment(Instant now) { requirePendingPayment("fail payment"); status = OrderStatus.PAYMENT_FAILED; paymentStatus = PaymentStatus.FAILED; updatedAt = now; }
+    /** Payment initiation (PRD 6.8): one order has exactly one payment; from now on only its result settles the order. */
+    public void startPayment(String newPaymentId, String method, Instant now) {
+        requirePendingPayment("start payment");
+        paymentId = newPaymentId;
+        paymentMethod = method;
+        paymentStatus = PaymentStatus.PROCESSING;
+        updatedAt = now;
+    }
+    public boolean isAwaitingPaymentResult() { return status == OrderStatus.PENDING_PAYMENT && paymentStatus == PaymentStatus.PROCESSING; }
+    public void confirmPayment(Instant now) { requireAwaitingPaymentResult(); status = OrderStatus.CONFIRMED; paymentStatus = PaymentStatus.SUCCEEDED; updatedAt = now; }
+    public void failPayment(Instant now) { requireAwaitingPaymentResult(); status = OrderStatus.PAYMENT_FAILED; paymentStatus = PaymentStatus.FAILED; updatedAt = now; }
+    /** The charge succeeded but the reserved tickets are gone (reservation expired or cancelled): refund it. */
+    public void cancelWithRefund(Instant now) { requireAwaitingPaymentResult(); status = OrderStatus.CANCELLED; paymentStatus = PaymentStatus.REFUND_REQUESTED; updatedAt = now; }
     /** Checked before releasing the reservation, so an uncancellable order never touches Reservation Service. */
     public void requireCancellable() { requirePendingPayment("cancel"); }
     public void cancel(Instant now) { requirePendingPayment("cancel"); status = OrderStatus.CANCELLED; updatedAt = now; }
@@ -57,16 +69,22 @@ public class Order {
         if (resultPaymentId == null || resultPaymentId.isBlank()) {
             throw new InvalidOrderStateException("Payment result must include a paymentId");
         }
-        if (paymentId != null && !paymentId.equals(resultPaymentId)) {
+        if (!resultPaymentId.equals(paymentId)) {
             throw new InvalidOrderStateException("Payment result does not belong to this order");
         }
         if (succeeded) confirmPayment(now); else failPayment(now);
-        paymentId = resultPaymentId;
     }
 
+    /** Not paid and no payment started: the order can still be paid, cancelled or expired. */
     private void requirePendingPayment(String action) {
         if (status != OrderStatus.PENDING_PAYMENT || paymentStatus != PaymentStatus.PENDING) {
             throw new InvalidOrderStateException("Only an order awaiting payment can " + action);
+        }
+    }
+
+    private void requireAwaitingPaymentResult() {
+        if (!isAwaitingPaymentResult()) {
+            throw new InvalidOrderStateException("Order has no payment in progress");
         }
     }
 
@@ -80,6 +98,7 @@ public class Order {
     public BigDecimal getUnitPrice() { return unitPrice; } public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
     public BigDecimal getTotalAmount() { return totalAmount; } public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
     public String getPaymentId() { return paymentId; } public void setPaymentId(String paymentId) { this.paymentId = paymentId; }
+    public String getPaymentMethod() { return paymentMethod; } public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
     public OrderStatus getStatus() { return status; } public void setStatus(OrderStatus status) { this.status = status; }
     public PaymentStatus getPaymentStatus() { return paymentStatus; } public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

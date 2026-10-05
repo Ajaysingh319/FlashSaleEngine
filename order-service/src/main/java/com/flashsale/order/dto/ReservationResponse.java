@@ -1,5 +1,6 @@
 package com.flashsale.order.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /** Wire contract returned by Reservation Service's authenticated internal endpoint. */
@@ -11,6 +12,8 @@ public class ReservationResponse {
     private Integer quantity;
     private String status;
     private Instant expiresAt;
+    private BigDecimal unitPrice;
+    private BigDecimal amount;
 
     public String getReservationId() { return reservationId; } public void setReservationId(String reservationId) { this.reservationId = reservationId; }
     public String getUserId() { return userId; } public void setUserId(String userId) { this.userId = userId; }
@@ -19,4 +22,6 @@ public class ReservationResponse {
     public Integer getQuantity() { return quantity; } public void setQuantity(Integer quantity) { this.quantity = quantity; }
     public String getStatus() { return status; } public void setStatus(String status) { this.status = status; }
     public Instant getExpiresAt() { return expiresAt; } public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+    public BigDecimal getUnitPrice() { return unitPrice; } public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
+    public BigDecimal getAmount() { return amount; } public void setAmount(BigDecimal amount) { this.amount = amount; }
 }

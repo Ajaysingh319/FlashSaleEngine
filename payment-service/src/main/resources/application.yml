@@ -27,9 +27,15 @@ payment:
     consumer-group: ${PAYMENT_KAFKA_CONSUMER_GROUP:payment-service}
     outbox-publish-interval: ${PAYMENT_OUTBOX_PUBLISH_INTERVAL:5000}
     topics:
-      requested: ${PAYMENT_REQUESTED_TOPIC:order.created}
+      requested: ${PAYMENT_REQUESTED_TOPIC:payment.requested}
       completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}
       failed: ${PAYMENT_FAILED_TOPIC:payment.failed}
+      refund-requested: ${PAYMENT_REFUND_REQUESTED_TOPIC:payment.refund_requested}
+
+app:
+  jwt:
+    # Base64-encoded secret (>= 256 bits) for HS256 JWT validation; must match Auth Service
+    secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
 
 management:
   endpoints:

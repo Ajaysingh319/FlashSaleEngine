@@ -6,19 +6,24 @@ import com.flashsale.order.dto.PaymentResultEnvelope;
 import com.flashsale.order.dto.PaymentResultPayload;
 import com.flashsale.order.exception.InvalidOrderStateException;
 import com.flashsale.order.exception.OrderNotFoundException;
-import com.flashsale.order.service.OrderService;
+import com.flashsale.order.service.OrderPaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-/** Thin Kafka adapter for Payment results; all state changes are delegated to OrderService. */
+import java.util.Set;
+
+/** Thin Kafka adapter for Payment results; all state changes are delegated to OrderPaymentService. */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentResultListener {
+    /** A declined charge (FAILED) and a provider timeout (TIMEOUT) both mean the order was not paid (PRD 6.8). */
+    private static final Set<String> FAILURE_STATUSES = Set.of("FAILED", "TIMEOUT");
+
     private final ObjectMapper objectMapper;
-    private final OrderService orderService;
+    private final OrderPaymentService orderPaymentService;
 
     @KafkaListener(topics = {"${order.kafka.topics.payment-completed}", "${order.kafka.topics.payment-result-failed}"},
             groupId = "${order.kafka.payment-result-consumer-group}")
@@ -27,7 +32,7 @@ public class PaymentResultListener {
         try {
             event = objectMapper.readValue(message, PaymentResultEnvelope.class);
             validate(event);
-            orderService.processPaymentResult(event);
+            orderPaymentService.processPaymentResult(event);
         } catch (JsonProcessingException | IllegalArgumentException | InvalidOrderStateException | OrderNotFoundException exception) {
             log.warn("Ignoring invalid or stale payment result event: {}", exception.getMessage());
         }
@@ -46,8 +51,8 @@ public class PaymentResultListener {
         if ("payment.completed".equals(event.eventType()) && !"SUCCESS".equals(payload.status())) {
             throw new IllegalArgumentException("Completed event must carry SUCCESS status");
         }
-        if ("payment.failed".equals(event.eventType()) && !"FAILED".equals(payload.status())) {
-            throw new IllegalArgumentException("Failed event must carry FAILED status");
+        if ("payment.failed".equals(event.eventType()) && !FAILURE_STATUSES.contains(payload.status())) {
+            throw new IllegalArgumentException("Failed event must carry FAILED or TIMEOUT status");
         }
         if (!"payment.completed".equals(event.eventType()) && !"payment.failed".equals(event.eventType())) {
             throw new IllegalArgumentException("Unsupported payment result event type");

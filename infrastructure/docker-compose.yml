@@ -187,8 +187,10 @@ services:
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.cancelled --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.confirmed --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic order.payment_failed --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.requested --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.refund_requested --partitions 3 --replication-factor 1
         echo "All Kafka topics created."
 
   # Backend Services
@@ -285,7 +287,6 @@ services:
       SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/order_db?replicaSet=rs0"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       RESERVATION_SERVICE_URL: http://reservation-service:8083
-      CATALOG_SERVICE_URL: http://catalog-service:8082
       JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
     depends_on:
       mongo-init:
@@ -316,6 +317,7 @@ services:
     environment:
       SPRING_DATA_MONGODB_URI: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/payment_db?replicaSet=rs0"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET:-Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
     depends_on:
       mongo-init:
         condition: service_completed_successfully

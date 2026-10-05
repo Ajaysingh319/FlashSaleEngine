@@ -34,7 +34,7 @@ public class OrderExceptionHandler {
                 HttpStatus.BAD_REQUEST.getReasonPhrase(), exception.getMessage()));
     }
 
-    @ExceptionHandler({ReservationServiceUnavailableException.class, CatalogPriceUnavailableException.class})
+    @ExceptionHandler(ReservationServiceUnavailableException.class)
     ResponseEntity<ApiError> dependencyUnavailable(RuntimeException exception) { return error(HttpStatus.BAD_GATEWAY, exception); }
 
     private ResponseEntity<ApiError> error(HttpStatus status, RuntimeException exception) {

@@ -26,10 +26,6 @@ reservation:
   service:
     url: ${RESERVATION_SERVICE_URL:http://localhost:8083}
 
-catalog:
-  service:
-    url: ${CATALOG_SERVICE_URL:http://localhost:8082}
-
 order:
   expiry:
     # How often unpaid orders past their reservation expiry are marked EXPIRED (milliseconds)
@@ -42,6 +38,8 @@ order:
       cancelled: ${ORDER_CANCELLED_TOPIC:order.cancelled}
       confirmed: ${ORDER_CONFIRMED_TOPIC:order.confirmed}
       payment-failed: ${ORDER_PAYMENT_FAILED_TOPIC:order.payment_failed}
+      payment-requested: ${PAYMENT_REQUESTED_TOPIC:payment.requested}
+      payment-refund-requested: ${PAYMENT_REFUND_REQUESTED_TOPIC:payment.refund_requested}
       payment-completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}
       payment-result-failed: ${PAYMENT_FAILED_TOPIC:payment.failed}
 

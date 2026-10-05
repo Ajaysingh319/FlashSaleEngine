@@ -13,4 +13,6 @@ public record OrderLifecycleEventPayload(
         BigDecimal unitPrice,
         BigDecimal totalAmount,
         String status,
-        String paymentStatus) { }
+        String paymentStatus,
+        String paymentId,
+        String paymentMethod) { }

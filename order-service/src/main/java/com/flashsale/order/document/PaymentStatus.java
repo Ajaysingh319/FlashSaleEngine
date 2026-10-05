@@ -1,3 +1,7 @@
 package com.flashsale.order.document;
 
-public enum PaymentStatus { PENDING, SUCCEEDED, FAILED }
+/**
+ * Order's view of its payment: PENDING (not started) -> PROCESSING (requested) -> SUCCEEDED or FAILED.
+ * REFUND_REQUESTED: the charge succeeded but the order could not be fulfilled, so the payment is being refunded.
+ */
+public enum PaymentStatus { PENDING, PROCESSING, SUCCEEDED, FAILED, REFUND_REQUESTED }
