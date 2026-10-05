@@ -6,41 +6,37 @@ import com.flashsale.payment.dto.PaymentRequestEnvelope;
 import com.flashsale.payment.dto.PaymentRequestPayload;
 import com.flashsale.payment.service.PaymentService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.util.Optional;
-
 /**
  * Kafka adapter for Order-originated payment events (charge and refund requests). Parsing and validation stay
- * here; all processing is delegated to PaymentService. Malformed events are logged and skipped.
+ * here; all processing is delegated to PaymentService. Malformed events are dead-lettered at once; processing
+ * failures propagate so they are retried and then dead-lettered (KafkaErrorHandlingConfig).
  */
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class PaymentRequestListener {
     private final ObjectMapper objectMapper;
     private final PaymentService paymentService;
 
     @KafkaListener(topics = "${payment.kafka.topics.requested}", groupId = "${payment.kafka.consumer-group}")
     public void onPaymentRequested(String message) {
-        parse(message).ifPresent(paymentService::processRequest);
+        paymentService.processRequest(parse(message));
     }
 
     @KafkaListener(topics = "${payment.kafka.topics.refund-requested}", groupId = "${payment.kafka.consumer-group}")
     public void onRefundRequested(String message) {
-        parse(message).ifPresent(paymentService::processRefund);
+        paymentService.processRefund(parse(message));
     }
 
-    private Optional<PaymentRequestEnvelope> parse(String message) {
+    private PaymentRequestEnvelope parse(String message) {
         try {
             PaymentRequestEnvelope event = objectMapper.readValue(message, PaymentRequestEnvelope.class);
             validate(event);
-            return Optional.of(event);
+            return event;
         } catch (JsonProcessingException | IllegalArgumentException exception) {
-            log.warn("Ignoring malformed payment event: {}", exception.getMessage());
-            return Optional.empty();
+            throw new InvalidEventException("Invalid payment event: " + exception.getMessage(), exception);
         }
     }
 

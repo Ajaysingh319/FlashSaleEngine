@@ -14,7 +14,10 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
-/** Thin Kafka adapter for Payment results; all state changes are delegated to OrderPaymentService. */
+/**
+ * Thin Kafka adapter for Payment results; all state changes are delegated to OrderPaymentService.
+ * Invalid events are dead-lettered at once; stale results for already-settled orders are skipped.
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -28,13 +31,24 @@ public class PaymentResultListener {
     @KafkaListener(topics = {"${order.kafka.topics.payment-completed}", "${order.kafka.topics.payment-result-failed}"},
             groupId = "${order.kafka.payment-result-consumer-group}")
     public void onPaymentResult(String message) {
-        PaymentResultEnvelope event;
+        PaymentResultEnvelope event = parse(message);
         try {
-            event = objectMapper.readValue(message, PaymentResultEnvelope.class);
-            validate(event);
             orderPaymentService.processPaymentResult(event);
-        } catch (JsonProcessingException | IllegalArgumentException | InvalidOrderStateException | OrderNotFoundException exception) {
-            log.warn("Ignoring invalid or stale payment result event: {}", exception.getMessage());
+        } catch (IllegalArgumentException mismatch) {
+            throw new InvalidEventException("Payment result does not match its order: " + mismatch.getMessage(), mismatch);
+        } catch (InvalidOrderStateException | OrderNotFoundException stale) {
+            log.warn("Ignoring stale payment result event {}: {}", event.eventId(), stale.getMessage());
+        }
+        // Any other failure (e.g. Reservation Service unavailable) propagates and is retried, then dead-lettered.
+    }
+
+    private PaymentResultEnvelope parse(String message) {
+        try {
+            PaymentResultEnvelope event = objectMapper.readValue(message, PaymentResultEnvelope.class);
+            validate(event);
+            return event;
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw new InvalidEventException("Invalid payment result event: " + exception.getMessage(), exception);
         }
     }
 

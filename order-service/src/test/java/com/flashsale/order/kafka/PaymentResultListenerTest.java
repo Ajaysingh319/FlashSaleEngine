@@ -3,11 +3,15 @@ package com.flashsale.order.kafka;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.flashsale.order.dto.PaymentResultEnvelope;
+import com.flashsale.order.exception.InvalidOrderStateException;
+import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.service.OrderPaymentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PaymentResultListenerTest {
@@ -42,11 +46,34 @@ class PaymentResultListenerTest {
     }
 
     @Test
-    void statusThatContradictsTheEventTypeIsIgnored() {
-        listener.onPaymentResult(event("payment.failed", "SUCCESS"));
-        listener.onPaymentResult(event("payment.completed", "TIMEOUT"));
-        listener.onPaymentResult(event("payment.completed", "FAILED"));
-
+    void malformedOrContradictoryEventsAreRejectedForTheDeadLetterTopic() {
+        for (String message : List.of("{not json", event("payment.failed", "SUCCESS"),
+                event("payment.completed", "TIMEOUT"), event("payment.completed", "FAILED"))) {
+            assertThrows(InvalidEventException.class, () -> listener.onPaymentResult(message));
+        }
         verifyNoInteractions(orderPaymentService);
+    }
+
+    @Test
+    void resultThatDoesNotMatchItsOrderIsRejectedForTheDeadLetterTopic() {
+        doThrow(new IllegalArgumentException("amount mismatch")).when(orderPaymentService).processPaymentResult(any());
+
+        assertThrows(InvalidEventException.class, () -> listener.onPaymentResult(event("payment.completed", "SUCCESS")));
+    }
+
+    @Test
+    void staleResultForAnAlreadySettledOrderIsSkipped() {
+        doThrow(new InvalidOrderStateException("already confirmed")).when(orderPaymentService).processPaymentResult(any());
+
+        assertDoesNotThrow(() -> listener.onPaymentResult(event("payment.completed", "SUCCESS")));
+    }
+
+    @Test
+    void transientFailureIsRethrownUnchangedSoItIsRetried() {
+        ReservationServiceUnavailableException down = new ReservationServiceUnavailableException("down");
+        doThrow(down).when(orderPaymentService).processPaymentResult(any());
+
+        assertSame(down, assertThrows(ReservationServiceUnavailableException.class,
+                () -> listener.onPaymentResult(event("payment.completed", "SUCCESS"))));
     }
 }

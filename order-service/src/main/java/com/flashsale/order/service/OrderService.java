@@ -122,7 +122,7 @@ public class OrderService {
      */
     private void releaseReservation(Order order) {
         try {
-            reservationServiceClient.releaseForCancelledOrder(order.getReservationId(), order.getOrderId(), order.getUserId());
+            reservationServiceClient.releaseReservation(order.getReservationId(), order.getOrderId(), order.getUserId());
         } catch (ReservationLifecycleConflictException conflict) {
             String status = reservationServiceClient.getReservationById(order.getReservationId()).getStatus();
             if (!"CANCELLED".equals(status) && !"EXPIRED".equals(status)) {

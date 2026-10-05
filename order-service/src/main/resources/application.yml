@@ -33,6 +33,10 @@ order:
   kafka:
     payment-result-consumer-group: ${ORDER_PAYMENT_RESULT_CONSUMER_GROUP:order-payment-results}
     outbox-publish-interval: ${ORDER_OUTBOX_PUBLISH_INTERVAL:5000}
+    retry:
+      # Redeliveries of a failing record before it is parked on <topic>.DLT (TDD 66-67)
+      attempts: ${ORDER_KAFKA_RETRY_ATTEMPTS:3}
+      backoff-interval: ${ORDER_KAFKA_RETRY_BACKOFF_MS:1000}
     topics:
       created: ${ORDER_CREATED_TOPIC:order.created}
       cancelled: ${ORDER_CANCELLED_TOPIC:order.cancelled}

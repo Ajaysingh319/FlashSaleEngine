@@ -140,14 +140,14 @@ class OrderServiceTest {
     void cancelReleasesReservationBeforeCancellingOrder() {
         Order order = pendingOrder();
         when(orderRepository.findByOrderId("order-1")).thenReturn(Optional.of(order));
-        when(reservationServiceClient.releaseForCancelledOrder("reservation-1", "order-1", "user-1"))
+        when(reservationServiceClient.releaseReservation("reservation-1", "order-1", "user-1"))
                 .thenReturn(reservationWithStatus("CANCELLED"));
 
         OrderResponse response = orderService.cancelOrder("order-1", "user-1");
 
         assertEquals("CANCELLED", response.getStatus());
         var inOrder = inOrder(reservationServiceClient, orderRepository, orderOutboxService);
-        inOrder.verify(reservationServiceClient).releaseForCancelledOrder("reservation-1", "order-1", "user-1");
+        inOrder.verify(reservationServiceClient).releaseReservation("reservation-1", "order-1", "user-1");
         inOrder.verify(orderRepository).save(order);
         inOrder.verify(orderOutboxService).appendCancelled(order);
     }
@@ -188,7 +188,7 @@ class OrderServiceTest {
             reset(orderRepository, reservationServiceClient, orderOutboxService);
             Order order = pendingOrder();
             when(orderRepository.findByOrderId("order-1")).thenReturn(Optional.of(order));
-            when(reservationServiceClient.releaseForCancelledOrder("reservation-1", "order-1", "user-1"))
+            when(reservationServiceClient.releaseReservation("reservation-1", "order-1", "user-1"))
                     .thenThrow(new ReservationLifecycleConflictException("not active"));
             when(reservationServiceClient.getReservationById("reservation-1"))
                     .thenReturn(reservationWithStatus(reservationStatus));
@@ -205,7 +205,7 @@ class OrderServiceTest {
     void orderWhoseTicketsWereAlreadySoldIsNotCancelled() {
         Order order = pendingOrder();
         when(orderRepository.findByOrderId("order-1")).thenReturn(Optional.of(order));
-        when(reservationServiceClient.releaseForCancelledOrder("reservation-1", "order-1", "user-1"))
+        when(reservationServiceClient.releaseReservation("reservation-1", "order-1", "user-1"))
                 .thenThrow(new ReservationLifecycleConflictException("not active"));
         when(reservationServiceClient.getReservationById("reservation-1")).thenReturn(reservationWithStatus("CONFIRMED"));
 
@@ -220,7 +220,7 @@ class OrderServiceTest {
     void reservationServiceUnavailableLeavesOrderUnchangedForRetry() {
         Order order = pendingOrder();
         when(orderRepository.findByOrderId("order-1")).thenReturn(Optional.of(order));
-        when(reservationServiceClient.releaseForCancelledOrder("reservation-1", "order-1", "user-1"))
+        when(reservationServiceClient.releaseReservation("reservation-1", "order-1", "user-1"))
                 .thenThrow(new ReservationServiceUnavailableException("down"));
 
         assertThrows(ReservationServiceUnavailableException.class, () -> orderService.cancelOrder("order-1", "user-1"));

@@ -26,6 +26,10 @@ payment:
   kafka:
     consumer-group: ${PAYMENT_KAFKA_CONSUMER_GROUP:payment-service}
     outbox-publish-interval: ${PAYMENT_OUTBOX_PUBLISH_INTERVAL:5000}
+    retry:
+      # Redeliveries of a failing record before it is parked on <topic>.DLT (TDD 66-67)
+      attempts: ${PAYMENT_KAFKA_RETRY_ATTEMPTS:3}
+      backoff-interval: ${PAYMENT_KAFKA_RETRY_BACKOFF_MS:1000}
     topics:
       requested: ${PAYMENT_REQUESTED_TOPIC:payment.requested}
       completed: ${PAYMENT_COMPLETED_TOPIC:payment.completed}

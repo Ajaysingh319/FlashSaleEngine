@@ -228,8 +228,8 @@ public class ReservationService {
         return transitionReservationForOrder(id, orderId, userId, ReservationStatus.CONFIRMED);
     }
 
-    /** Idempotent internal release when the Order's payment has failed. */
-    public ReservationResponse cancelReservationAfterPaymentFailure(String id, String orderId, String userId) {
+    /** Idempotent internal release for the Order that owns this reservation (payment failed or order cancelled). */
+    public ReservationResponse releaseReservationForOrder(String id, String orderId, String userId) {
         return transitionReservationForOrder(id, orderId, userId, ReservationStatus.CANCELLED);
     }
 

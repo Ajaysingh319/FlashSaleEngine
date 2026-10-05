@@ -56,16 +56,12 @@ public class ReservationServiceClient {
         return transition(reservationId, "/confirm", orderId, userId, "CONFIRMED");
     }
 
-    public ReservationResponse cancelAfterPaymentFailure(String reservationId, String orderId, String userId) {
-        return transition(reservationId, "/cancel-after-payment-failure", orderId, userId, "CANCELLED");
-    }
-
     /**
-     * Releases the reservation of a user-cancelled order (PRD 6.13). Uses Reservation's order-bound release
-     * transition (ACTIVE -> CANCELLED, reserved -> available), which is idempotent for the same order.
+     * Returns the order's reserved tickets to stock (ACTIVE -> CANCELLED) after a failed payment or a user
+     * cancellation (PRD 6.13). Idempotent for the same order.
      */
-    public ReservationResponse releaseForCancelledOrder(String reservationId, String orderId, String userId) {
-        return transition(reservationId, "/cancel-after-payment-failure", orderId, userId, "CANCELLED");
+    public ReservationResponse releaseReservation(String reservationId, String orderId, String userId) {
+        return transition(reservationId, "/release", orderId, userId, "CANCELLED");
     }
 
     private ReservationResponse transition(String reservationId, String path, String orderId, String userId,

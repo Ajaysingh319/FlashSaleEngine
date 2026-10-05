@@ -31,9 +31,9 @@ public class InternalReservationController {
         return ResponseEntity.ok(reservationService.confirmReservationForOrder(id, request.getOrderId(), request.getUserId()));
     }
 
-    @PostMapping("/{id}/cancel-after-payment-failure")
-    public ResponseEntity<ReservationResponse> cancelAfterPaymentFailure(@PathVariable("id") String id,
+    @PostMapping("/{id}/release")
+    public ResponseEntity<ReservationResponse> releaseReservation(@PathVariable("id") String id,
             @Valid @RequestBody ReservationLifecycleRequest request) {
-        return ResponseEntity.ok(reservationService.cancelReservationAfterPaymentFailure(id, request.getOrderId(), request.getUserId()));
+        return ResponseEntity.ok(reservationService.releaseReservationForOrder(id, request.getOrderId(), request.getUserId()));
     }
 }

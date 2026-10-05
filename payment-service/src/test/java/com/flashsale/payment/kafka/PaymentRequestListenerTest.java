@@ -8,8 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -51,18 +52,26 @@ class PaymentRequestListenerTest {
     }
 
     @Test
-    void malformedRefundRequestIsIgnored() {
-        listener.onRefundRequested("{not json");
+    void malformedRefundRequestIsRejectedForTheDeadLetterTopic() {
+        assertThrows(InvalidEventException.class, () -> listener.onRefundRequested("{not json"));
 
         verifyNoInteractions(paymentService);
     }
 
     @Test
-    void malformedOrIncompleteEventsAreIgnored() {
-        listener.onPaymentRequested("{not json");
-        listener.onPaymentRequested(ORDER_EVENT.replace("\"paymentId\":\"pay-1\",", ""));
-        listener.onPaymentRequested(ORDER_EVENT.replace(",\"paymentMethod\":\"MOCK_CARD\"", ""));
-
+    void malformedOrIncompleteEventsAreRejectedForTheDeadLetterTopic() {
+        for (String message : List.of("{not json", ORDER_EVENT.replace("\"paymentId\":\"pay-1\",", ""),
+                ORDER_EVENT.replace(",\"paymentMethod\":\"MOCK_CARD\"", ""))) {
+            assertThrows(InvalidEventException.class, () -> listener.onPaymentRequested(message));
+        }
         verifyNoInteractions(paymentService);
+    }
+
+    @Test
+    void processingFailureIsRethrownUnchangedSoItIsRetried() {
+        IllegalStateException failure = new IllegalStateException("mongo down");
+        doThrow(failure).when(paymentService).processRequest(any());
+
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> listener.onPaymentRequested(ORDER_EVENT)));
     }
 }

@@ -191,6 +191,11 @@ services:
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed --partitions 3 --replication-factor 1
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.refund_requested --partitions 3 --replication-factor 1
+        # Dead-letter topics for records that failed after retries or were invalid (TDD 66-67)
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.requested.DLT --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.refund_requested.DLT --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed.DLT --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed.DLT --partitions 1 --replication-factor 1
         echo "All Kafka topics created."
 
   # Backend Services

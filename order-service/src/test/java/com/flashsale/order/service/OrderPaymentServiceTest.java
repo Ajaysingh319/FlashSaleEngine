@@ -158,7 +158,7 @@ class OrderPaymentServiceTest {
 
         service.processPaymentResult(result("payment.failed", "pay-1", "FAILED"));
 
-        verify(reservationServiceClient).cancelAfterPaymentFailure("res-1", "order-1", "user-1");
+        verify(reservationServiceClient).releaseReservation("res-1", "order-1", "user-1");
         verify(orderOutboxService).appendPaymentFailed(order);
         assertEquals(OrderStatus.PAYMENT_FAILED, order.getStatus());
         assertEquals(PaymentStatus.FAILED, order.getPaymentStatus());
@@ -205,7 +205,7 @@ class OrderPaymentServiceTest {
     void failedPaymentStillSettlesWhenReservationWasAlreadyReleased() {
         order.startPayment("pay-1", "MOCK_CARD", NOW);
         doThrow(new ReservationLifecycleConflictException("already expired"))
-                .when(reservationServiceClient).cancelAfterPaymentFailure("res-1", "order-1", "user-1");
+                .when(reservationServiceClient).releaseReservation("res-1", "order-1", "user-1");
 
         service.processPaymentResult(result("payment.failed", "pay-1", "TIMEOUT"));
 

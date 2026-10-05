@@ -110,7 +110,7 @@ public class OrderPaymentService {
     /** Releases the reservation, then fails the order. A reservation already released (e.g. expired) holds nothing. */
     private void settleFailure(Order order, PaymentResultPayload result) {
         try {
-            reservationServiceClient.cancelAfterPaymentFailure(order.getReservationId(), order.getOrderId(), order.getUserId());
+            reservationServiceClient.releaseReservation(order.getReservationId(), order.getOrderId(), order.getUserId());
         } catch (ReservationLifecycleConflictException | ReservationNotFoundException alreadyReleased) {
             // Nothing is reserved any more; the order still records the failed payment.
         }

@@ -130,10 +130,10 @@ class ReservationAuthorizationRulesTest {
                 .andExpect(status().isOk());
         verify(reservationService).confirmReservationForOrder("res-1", "ord-1", "user-1");
 
-        mockMvc.perform(as(post("/internal/v1/reservations/res-1/cancel-after-payment-failure"), internal())
+        mockMvc.perform(as(post("/internal/v1/reservations/res-1/release"), internal())
                         .contentType(MediaType.APPLICATION_JSON).content(LIFECYCLE_BODY))
                 .andExpect(status().isOk());
-        verify(reservationService).cancelReservationAfterPaymentFailure("res-1", "ord-1", "user-1");
+        verify(reservationService).releaseReservationForOrder("res-1", "ord-1", "user-1");
     }
 
     @Test
@@ -154,7 +154,7 @@ class ReservationAuthorizationRulesTest {
             mockMvc.perform(as(post("/internal/v1/reservations/res-1/confirm"), userToken)
                             .contentType(MediaType.APPLICATION_JSON).content(LIFECYCLE_BODY))
                     .andExpect(status().isForbidden());
-            mockMvc.perform(as(post("/internal/v1/reservations/res-1/cancel-after-payment-failure"), userToken)
+            mockMvc.perform(as(post("/internal/v1/reservations/res-1/release"), userToken)
                             .contentType(MediaType.APPLICATION_JSON).content(LIFECYCLE_BODY))
                     .andExpect(status().isForbidden());
             mockMvc.perform(as(get("/internal/v1/inventory/tt-1"), userToken)).andExpect(status().isForbidden());
