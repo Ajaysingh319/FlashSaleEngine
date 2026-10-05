@@ -5,6 +5,7 @@ import com.flashsale.reservation.document.ReservationIdempotency;
 import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationStatus;
 import com.flashsale.reservation.dto.InventoryInitializationRequest;
+import com.flashsale.reservation.dto.CatalogTicketTypeResponse;
 import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
@@ -17,6 +18,7 @@ import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.exception.ReservationExpiredException;
 import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
+import com.flashsale.reservation.exception.TicketTypeNotFoundException;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
@@ -36,6 +38,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
@@ -65,6 +68,7 @@ public class ReservationService {
     private final TransactionTemplate transactionTemplate;
     private final ReservationOutboxService reservationOutboxService;
     private final EventSaleEligibilityValidator eventSaleEligibilityValidator;
+    private final CatalogServiceClient catalogServiceClient;
 
     public InventoryResponse initializeInventory(InventoryInitializationRequest request) {
         if (request.getTotalQuantity() != request.getAvailableQuantity() + request.getReservedQuantity() + request.getSoldQuantity()) {
@@ -123,6 +127,9 @@ public class ReservationService {
         }
         // Sale-window/event eligibility (TDD 21 step 4): checked before any lock or inventory change.
         eventSaleEligibilityValidator.assertReservable(request.getEventId());
+        // Price snapshot (TDD 16), also before any lock; the amount is fixed for the life of the reservation.
+        BigDecimal unitPrice = ticketTypePrice(request.getEventId(), request.getTicketTypeId());
+        BigDecimal amount = unitPrice.multiply(BigDecimal.valueOf(request.getQuantity()));
 
         try {
             return withLocks(userId, request.getEventId(), request.getTicketTypeId(), () -> {
@@ -146,6 +153,8 @@ public class ReservationService {
             reservation.setTicketTypeId(request.getTicketTypeId());
             reservation.setUserId(userId);
             reservation.setQuantity(request.getQuantity());
+            reservation.setUnitPrice(unitPrice);
+            reservation.setAmount(amount);
             reservation.setStatus(ReservationStatus.ACTIVE.name());
             reservation.setCreatedAt(now);
             reservation.setUpdatedAt(now);
@@ -168,6 +177,14 @@ public class ReservationService {
                     .orElseThrow(() -> exception);
             return replayOrReject(persisted, requestFingerprint);
         }
+    }
+
+    /** Ticket-type price from Catalog; the ticket type must exist and belong to the requested event. */
+    private BigDecimal ticketTypePrice(String eventId, String ticketTypeId) {
+        CatalogTicketTypeResponse ticketType = catalogServiceClient.findTicketType(ticketTypeId)
+                .filter(found -> eventId.equals(found.getEventId()))
+                .orElseThrow(() -> new TicketTypeNotFoundException(ticketTypeId, eventId));
+        return BigDecimal.valueOf(ticketType.getPrice());
     }
 
     private ReservationResponse replayOrReject(ReservationIdempotency idempotency, String requestFingerprint) {
@@ -407,7 +424,8 @@ public class ReservationService {
 
     private ReservationResponse mapToResponse(Reservation reservation) {
         return new ReservationResponse(reservation.getId(), reservation.getEventId(), reservation.getTicketTypeId(), reservation.getUserId(),
-                reservation.getQuantity(), reservation.getStatus(), reservation.getCreatedAt(), reservation.getUpdatedAt(), reservation.getExpiresAt());
+                reservation.getQuantity(), reservation.getStatus(), reservation.getCreatedAt(), reservation.getUpdatedAt(), reservation.getExpiresAt(),
+                reservation.getUnitPrice(), reservation.getAmount());
     }
 
     private InventoryResponse mapToResponse(Inventory inventory) {

@@ -2,6 +2,7 @@ package com.flashsale.reservation.service;
 
 import com.flashsale.reservation.config.RestClientConfig;
 import com.flashsale.reservation.dto.CatalogEventResponse;
+import com.flashsale.reservation.dto.CatalogTicketTypeResponse;
 import com.flashsale.reservation.exception.CatalogUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -131,6 +132,61 @@ class CatalogServiceClientTest {
         server.expect(requestTo(EVENT_URL))
                 .andRespond(withSuccess(EVENT_JSON.replace("\"status\":\"ON_SALE\",", ""), MediaType.APPLICATION_JSON));
         assertThrows(CatalogUnavailableException.class, () -> client.findEvent("event-1"));
+    }
+
+    // --- Ticket type price: GET /api/v1/ticket-types/{id} ---
+
+    private static final String TICKET_TYPE_URL = BASE_URL + "/api/v1/ticket-types/tt-1";
+
+    /** Shape of Catalog Service's TicketTypeResponse, including fields Reservation does not use. */
+    private static final String TICKET_TYPE_JSON = """
+            {"id":"tt-1","name":"VIP","price":4999.0,"totalQuantity":500,"inventoryStatus":"READY",
+             "eventId":"event-1","createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-01T00:00:00Z"}
+            """;
+
+    @Test
+    void readsTicketTypePriceFromCatalog() {
+        server.expect(requestTo(TICKET_TYPE_URL)).andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(TICKET_TYPE_JSON, MediaType.APPLICATION_JSON));
+
+        CatalogTicketTypeResponse ticketType = client.findTicketType("tt-1").orElseThrow();
+
+        assertEquals("tt-1", ticketType.getId());
+        assertEquals("event-1", ticketType.getEventId());
+        assertEquals(4999.0, ticketType.getPrice());
+        server.verify();
+    }
+
+    @Test
+    void unknownTicketTypeIsEmpty() {
+        server.expect(requestTo(TICKET_TYPE_URL)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertEquals(Optional.empty(), client.findTicketType("tt-1"));
+    }
+
+    @Test
+    void ticketTypeLookupFailureFailsClosed() {
+        server.expect(requestTo(TICKET_TYPE_URL)).andRespond(withServerError());
+        assertThrows(CatalogUnavailableException.class, () -> client.findTicketType("tt-1"));
+
+        server.reset();
+        server.expect(requestTo(TICKET_TYPE_URL)).andRespond(withException(new SocketTimeoutException("Read timed out")));
+        assertThrows(CatalogUnavailableException.class, () -> client.findTicketType("tt-1"));
+    }
+
+    @Test
+    void unusableTicketTypeResponsesFailClosed() {
+        for (String body : new String[]{
+                TICKET_TYPE_JSON.replace("\"id\":\"tt-1\"", "\"id\":\"tt-2\""),
+                TICKET_TYPE_JSON.replace("\"price\":4999.0,", ""),
+                TICKET_TYPE_JSON.replace("\"price\":4999.0", "\"price\":0"),
+                TICKET_TYPE_JSON.replace("\"price\":4999.0", "\"price\":-1"),
+                TICKET_TYPE_JSON.replace("\"eventId\":\"event-1\",", "")}) {
+            server.reset();
+            server.expect(requestTo(TICKET_TYPE_URL)).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+            assertThrows(CatalogUnavailableException.class, () -> client.findTicketType("tt-1"), body);
+        }
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.flashsale.reservation.document.Inventory;
 import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationIdempotency;
 import com.flashsale.reservation.dto.CatalogEventResponse;
+import com.flashsale.reservation.dto.CatalogTicketTypeResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.exception.CatalogUnavailableException;
@@ -11,6 +12,7 @@ import com.flashsale.reservation.exception.EventCancelledException;
 import com.flashsale.reservation.exception.EventNotFoundException;
 import com.flashsale.reservation.exception.EventNotOnSaleException;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
+import com.flashsale.reservation.exception.TicketTypeNotFoundException;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
@@ -18,6 +20,7 @@ import com.flashsale.reservation.repository.ReservationRepository;
 import com.mongodb.client.result.UpdateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
@@ -26,6 +29,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -72,13 +76,15 @@ class ReservationEligibilityFlowTest {
             reservation.setId("res-1");
             return reservation;
         });
+        when(catalogClient.findTicketType("ticket-1"))
+                .thenReturn(Optional.of(new CatalogTicketTypeResponse("ticket-1", "event-1", 4999.0)));
     }
 
     private ReservationService serviceAt(Instant now) {
         EventSaleEligibilityValidator validator =
                 new EventSaleEligibilityValidator(catalogClient, Clock.fixed(now, ZoneOffset.UTC));
         return new ReservationService(reservationRepository, inventoryRepository, idempotencyRepository,
-                mongoTemplate, redisTemplate, transactionTemplate, outboxService, validator);
+                mongoTemplate, redisTemplate, transactionTemplate, outboxService, validator, catalogClient);
     }
 
     private void catalogReturns(String status) {
@@ -112,6 +118,74 @@ class ReservationEligibilityFlowTest {
         verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Inventory.class));
         verify(idempotencyRepository).insert(any(ReservationIdempotency.class));
         verify(outboxService).append(eq("reservation.created"), eq("RESERVATION_CREATED"), any());
+    }
+
+    // --- Price snapshot (PRD 6.5, TDD 16) ---
+
+    @Test
+    void reservationStoresAndReturnsUnitPriceAndAmount() {
+        catalogReturns("ON_SALE");
+
+        ReservationResponse response = serviceAt(DURING_SALE).createReservation("user-1", "key-1", request(2));
+
+        assertEquals(0, new BigDecimal("4999.0").compareTo(response.getUnitPrice()));
+        assertEquals(0, new BigDecimal("9998.0").compareTo(response.getAmount()));
+        ArgumentCaptor<Reservation> saved = ArgumentCaptor.forClass(Reservation.class);
+        verify(reservationRepository).save(saved.capture());
+        assertEquals(0, new BigDecimal("4999.0").compareTo(saved.getValue().getUnitPrice()));
+        assertEquals(0, new BigDecimal("9998.0").compareTo(saved.getValue().getAmount()));
+    }
+
+    @Test
+    void unknownTicketTypeIsRejectedWithoutTouchingInventory() {
+        catalogReturns("ON_SALE");
+        when(catalogClient.findTicketType("ticket-1")).thenReturn(Optional.empty());
+
+        assertThrows(TicketTypeNotFoundException.class,
+                () -> serviceAt(DURING_SALE).createReservation("user-1", "key-1", request(1)));
+        assertNoSideEffects();
+    }
+
+    @Test
+    void ticketTypeOfAnotherEventIsRejectedWithoutTouchingInventory() {
+        catalogReturns("ON_SALE");
+        when(catalogClient.findTicketType("ticket-1"))
+                .thenReturn(Optional.of(new CatalogTicketTypeResponse("ticket-1", "other-event", 4999.0)));
+
+        assertThrows(TicketTypeNotFoundException.class,
+                () -> serviceAt(DURING_SALE).createReservation("user-1", "key-1", request(1)));
+        assertNoSideEffects();
+    }
+
+    @Test
+    void priceLookupFailureFailsClosedWithoutTouchingInventory() {
+        catalogReturns("ON_SALE");
+        when(catalogClient.findTicketType("ticket-1")).thenThrow(new CatalogUnavailableException("down"));
+
+        assertThrows(CatalogUnavailableException.class,
+                () -> serviceAt(DURING_SALE).createReservation("user-1", "key-1", request(1)));
+        assertNoSideEffects();
+    }
+
+    @Test
+    void replayReturnsStoredAmountWithoutRepricing() {
+        ReservationIdempotency record = new ReservationIdempotency();
+        record.setUserId("user-1");
+        record.setIdempotencyKey("key-1");
+        record.setReservationId("res-1");
+        record.setRequestFingerprint(fingerprint(request(2)));
+        when(idempotencyRepository.findByUserIdAndIdempotencyKey("user-1", "key-1")).thenReturn(Optional.of(record));
+        Reservation original = new Reservation();
+        original.setId("res-1");
+        original.setStatus("ACTIVE");
+        original.setUnitPrice(new BigDecimal("4999.0"));
+        original.setAmount(new BigDecimal("9998.0"));
+        when(reservationRepository.findById("res-1")).thenReturn(Optional.of(original));
+
+        ReservationResponse replay = serviceAt(DURING_SALE).createReservation("user-1", "key-1", request(2));
+
+        assertEquals(0, new BigDecimal("9998.0").compareTo(replay.getAmount()));
+        verifyNoInteractions(catalogClient);
     }
 
     @Test

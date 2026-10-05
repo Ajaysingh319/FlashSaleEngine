@@ -13,6 +13,7 @@ import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.exception.ReservationExpiredException;
 import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
+import com.flashsale.reservation.exception.TicketTypeNotFoundException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +71,11 @@ public class ReservationExceptionHandler {
     @ExceptionHandler(InvalidReservationStateException.class)
     ResponseEntity<ErrorResponse> handleInvalidState(InvalidReservationStateException exception) {
         return error(HttpStatus.CONFLICT, "INVALID_RESERVATION_STATE", exception.getMessage());
+    }
+
+    @ExceptionHandler(TicketTypeNotFoundException.class)
+    ResponseEntity<ErrorResponse> handleTicketTypeNotFound(TicketTypeNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "TICKET_TYPE_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(EventNotFoundException.class)

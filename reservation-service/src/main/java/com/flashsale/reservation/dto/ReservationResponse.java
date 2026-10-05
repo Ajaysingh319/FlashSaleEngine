@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Data
@@ -19,4 +20,6 @@ public class ReservationResponse {
     private Instant createdAt;
     private Instant updatedAt;
     private Instant expiresAt;
+    private BigDecimal unitPrice;
+    private BigDecimal amount;
 }

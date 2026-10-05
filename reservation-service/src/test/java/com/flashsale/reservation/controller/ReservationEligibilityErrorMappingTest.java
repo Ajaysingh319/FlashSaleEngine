@@ -4,6 +4,8 @@ import com.flashsale.reservation.exception.CatalogUnavailableException;
 import com.flashsale.reservation.exception.EventCancelledException;
 import com.flashsale.reservation.exception.EventNotFoundException;
 import com.flashsale.reservation.exception.EventNotOnSaleException;
+import com.flashsale.reservation.exception.TicketTypeNotFoundException;
+import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.security.JwtAuthenticationFilter;
 import com.flashsale.reservation.security.ReservationSecurityConfig;
 import com.flashsale.reservation.service.ReservationService;
@@ -21,6 +23,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Date;
 
@@ -66,6 +69,33 @@ class ReservationEligibilityErrorMappingTest {
 
     private void serviceThrows(RuntimeException exception) {
         when(reservationService.createReservation(eq("user-1"), eq("key-1"), any())).thenThrow(exception);
+    }
+
+    @Test
+    void createdReservationIncludesUnitPriceAndAmount() throws Exception {
+        Instant now = Instant.now();
+        when(reservationService.createReservation(eq("user-1"), eq("key-1"), any())).thenReturn(new ReservationResponse(
+                "res-1", "event-1", "ticket-1", "user-1", 2, "ACTIVE", now, now, now.plusSeconds(600),
+                new BigDecimal("4999.00"), new BigDecimal("9998.00")));
+
+        createReservationAsCustomer()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reservationId").value("res-1"))
+                .andExpect(jsonPath("$.quantity").value(2))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.expiresAt").exists())
+                .andExpect(jsonPath("$.unitPrice").value(4999.00))
+                .andExpect(jsonPath("$.amount").value(9998.00));
+    }
+
+    @Test
+    void unknownTicketTypeIs404TicketTypeNotFound() throws Exception {
+        serviceThrows(new TicketTypeNotFoundException("ticket-1", "event-1"));
+
+        createReservationAsCustomer()
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("TICKET_TYPE_NOT_FOUND"));
     }
 
     @Test

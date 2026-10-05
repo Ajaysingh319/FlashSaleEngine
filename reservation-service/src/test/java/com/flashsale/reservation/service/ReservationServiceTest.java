@@ -4,6 +4,7 @@ import com.flashsale.reservation.document.Inventory;
 import com.flashsale.reservation.document.Reservation;
 import com.flashsale.reservation.document.ReservationStatus;
 import com.flashsale.reservation.document.ReservationIdempotency;
+import com.flashsale.reservation.dto.CatalogTicketTypeResponse;
 import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
@@ -57,6 +58,7 @@ class ReservationServiceTest {
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private ReservationOutboxService reservationOutboxService;
     @Mock private EventSaleEligibilityValidator eventSaleEligibilityValidator;
+    @Mock private CatalogServiceClient catalogServiceClient;
     @InjectMocks private ReservationService reservationService;
 
     @BeforeEach
@@ -70,6 +72,8 @@ class ReservationServiceTest {
             TransactionCallback<?> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
+        when(catalogServiceClient.findTicketType(anyString())).thenAnswer(invocation ->
+                Optional.of(new CatalogTicketTypeResponse(invocation.getArgument(0), "event-1", 4999.0)));
     }
 
     @Test
