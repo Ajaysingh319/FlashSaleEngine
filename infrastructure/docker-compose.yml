@@ -352,7 +352,11 @@ services:
       RESERVATION_SERVICE_URL: http://reservation-service:8083
       ORDER_SERVICE_URL: http://order-service:8084
       PAYMENT_SERVICE_URL: http://payment-service:8085
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
+      redis:
+        condition: service_healthy
       auth-service:
         condition: service_healthy
       catalog-service:

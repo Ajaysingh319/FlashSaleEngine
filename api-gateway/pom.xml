@@ -50,6 +50,12 @@
             <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
 
+        <!-- Redis (shared rate-limit counters; reactive template comes with Reactor on the classpath) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <!-- Spring Boot Actuator (for health checks) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

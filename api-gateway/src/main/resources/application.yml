@@ -7,6 +7,10 @@ spring:
   main:
     # spring-boot-starter-web is on the classpath; Spring Cloud Gateway requires the reactive stack
     web-application-type: reactive
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   cloud:
     gateway:
       default-filters:
@@ -19,11 +23,42 @@ spring:
             allowedHeaders: "*"
             allowCredentials: true
       routes:
+        # Rate-limited high-value operations (PRD 6.11, TDD 54); must precede the broader routes below
+        - id: auth-login
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/auth/login
+          filters:
+            - RateLimit=login, ${LOGIN_RATE_LIMIT:10}
+        - id: reservation-create
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/reservations
+            - Method=POST
+          filters:
+            - AuthenticationRequired
+            - RateLimit=reservation, ${RESERVATION_RATE_LIMIT:10}
+        - id: order-create
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders
+            - Method=POST
+          filters:
+            - AuthenticationRequired
+            - RateLimit=order, ${ORDER_RATE_LIMIT:10}
+        - id: payment-initiation
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/{orderId}/payment
+            - Method=POST
+          filters:
+            - AuthenticationRequired
+            - RateLimit=payment, ${PAYMENT_RATE_LIMIT:5}
         # Public endpoints - no authentication required
         - id: auth-service-public
           uri: ${AUTH_SERVICE_URL:http://localhost:8081}
           predicates:
-            - Path=/api/v1/auth/register, /api/v1/auth/login, /api/v1/auth/refresh, /api/v1/auth/logout
+            - Path=/api/v1/auth/register, /api/v1/auth/refresh, /api/v1/auth/logout
         - id: catalog-events-public
           uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:
@@ -94,8 +129,16 @@ app:
   jwt:
     # Base64-encoded secret (>= 256 bits) for HS256 JWT validation; must match auth, reservation, and order services
     secret: ${JWT_SECRET:Zmxhc2gtc2FsZS1lbmdpbmUtc2VjcmV0LWtleS0zMmIh}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    # Per-route limits (above) count requests in this window, per user or per client IP for login
+    window: ${RATE_LIMIT_WINDOW:60s}
 
 management:
+  health:
+    redis:
+      # The Gateway keeps routing when Redis is down (rate limiting fails open), so Redis does not decide its health
+      enabled: false
   endpoints:
     web:
       exposure:

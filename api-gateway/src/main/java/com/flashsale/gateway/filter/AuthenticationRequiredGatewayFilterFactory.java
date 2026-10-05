@@ -36,6 +36,8 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
 
     static final String USER_ID_HEADER = "X-User-Id";
     static final String USER_ROLE_HEADER = "X-User-Role";
+    /** Exchange attribute holding the verified user ID for later filters (attributes cannot be set by clients). */
+    static final String AUTHENTICATED_USER_ID = "flashsale.authenticatedUserId";
 
     private static final int MIN_SECRET_BYTES = 32;
 
@@ -109,6 +111,7 @@ public class AuthenticationRequiredGatewayFilterFactory extends AbstractGatewayF
                         .header(USER_ID_HEADER, userId)
                         .header(USER_ROLE_HEADER, role)
                         .build();
+                exchange.getAttributes().put(AUTHENTICATED_USER_ID, userId);
 
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
             } catch (ParseException e) {
