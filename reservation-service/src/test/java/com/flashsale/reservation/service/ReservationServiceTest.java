@@ -9,6 +9,7 @@ import com.flashsale.reservation.dto.InventoryInitializationRequest;
 import com.flashsale.reservation.dto.InventoryResponse;
 import com.flashsale.reservation.dto.ReservationRequest;
 import com.flashsale.reservation.dto.ReservationResponse;
+import com.flashsale.reservation.exception.ReservationBusyException;
 import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryConflictException;
 import com.flashsale.reservation.exception.InventoryNotFoundException;
@@ -209,7 +210,7 @@ class ReservationServiceTest {
     void failedFirstLockDoesNotRunBusinessOperationOrReleaseSomeoneElsesLock() {
         when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(false);
 
-        assertThrows(IllegalStateException.class, () -> reservationService.createReservation("user-1", "key-1", request(1)));
+        assertThrows(ReservationBusyException.class, () -> reservationService.createReservation("user-1", "key-1", request(1)));
 
         verifyNoInteractions(mongoTemplate);
         verify(redisTemplate, never()).execute(any(), anyList(), any());

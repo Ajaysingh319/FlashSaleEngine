@@ -8,6 +8,7 @@ import com.flashsale.reservation.exception.IdempotencyConflictException;
 import com.flashsale.reservation.exception.InventoryConflictException;
 import com.flashsale.reservation.exception.InventoryNotFoundException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
+import com.flashsale.reservation.exception.ReservationBusyException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
 import com.flashsale.reservation.exception.ReservationExpiredException;
@@ -15,6 +16,7 @@ import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
 import com.flashsale.reservation.exception.TicketTypeNotFoundException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -31,6 +33,13 @@ public class ReservationExceptionHandler {
     @ExceptionHandler(IdempotencyConflictException.class)
     ResponseEntity<ErrorResponse> handleIdempotencyConflict(IdempotencyConflictException exception) {
         return error(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", exception.getMessage());
+    }
+
+    /** Lock contention during a flash sale: nothing changed, so tell the client to retry shortly (not a server error). */
+    @ExceptionHandler(ReservationBusyException.class)
+    ResponseEntity<ErrorResponse> handleBusy(ReservationBusyException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse(false, new ErrorDetail("RESERVATION_BUSY", exception.getMessage()), Instant.now()));
     }
 
     @ExceptionHandler(InventoryUnavailableException.class)

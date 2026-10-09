@@ -15,6 +15,7 @@ import com.flashsale.reservation.exception.InventoryNotFoundException;
 import com.flashsale.reservation.exception.InventoryUnavailableException;
 import com.flashsale.reservation.exception.InvalidReservationStateException;
 import com.flashsale.reservation.exception.PurchaseLimitExceededException;
+import com.flashsale.reservation.exception.ReservationBusyException;
 import com.flashsale.reservation.exception.ReservationExpiredException;
 import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
@@ -408,7 +409,7 @@ public class ReservationService {
     private LockHandle acquireLock(String key) {
         String token = UUID.randomUUID().toString();
         if (!Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, token, LOCK_LEASE_TIME))) {
-            throw new IllegalStateException("Could not acquire reservation lock; please retry");
+            throw new ReservationBusyException();
         }
         return new LockHandle(key, token);
     }

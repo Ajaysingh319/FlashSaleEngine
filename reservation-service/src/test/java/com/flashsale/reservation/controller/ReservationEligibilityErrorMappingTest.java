@@ -4,6 +4,7 @@ import com.flashsale.reservation.exception.CatalogUnavailableException;
 import com.flashsale.reservation.exception.EventCancelledException;
 import com.flashsale.reservation.exception.EventNotFoundException;
 import com.flashsale.reservation.exception.EventNotOnSaleException;
+import com.flashsale.reservation.exception.ReservationBusyException;
 import com.flashsale.reservation.exception.TicketTypeNotFoundException;
 import com.flashsale.reservation.dto.ReservationResponse;
 import com.flashsale.reservation.security.JwtAuthenticationFilter;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -86,6 +88,16 @@ class ReservationEligibilityErrorMappingTest {
                 .andExpect(jsonPath("$.expiresAt").exists())
                 .andExpect(jsonPath("$.unitPrice").value(4999.00))
                 .andExpect(jsonPath("$.amount").value(9998.00));
+    }
+
+    @Test
+    void lockContentionIs503WithRetryAfterNotAServerError() throws Exception {
+        serviceThrows(new ReservationBusyException());
+
+        createReservationAsCustomer()
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "1"))
+                .andExpect(jsonPath("$.error.code").value("RESERVATION_BUSY"));
     }
 
     @Test
