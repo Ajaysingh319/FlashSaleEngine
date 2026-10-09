@@ -48,6 +48,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Prometheus metrics at /actuator/prometheus (TDD 69) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Spring Boot DevTools (for development) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

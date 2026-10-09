@@ -1,5 +1,6 @@
 package com.flashsale.payment.outbox;
 
+import com.flashsale.payment.observability.KafkaTraceHeader;
 import com.flashsale.payment.document.PaymentOutboxEvent;
 import com.flashsale.payment.repository.PaymentOutboxEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,8 @@ public class PaymentOutboxPublisher {
     public void publishPending() {
         for (PaymentOutboxEvent event : outboxRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc()) {
             try {
-                kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload()).get();
+                kafkaTemplate.send(KafkaTraceHeader.record(
+                    event.getTopic(), event.getAggregateId(), event.getPayload(), event.getTraceId())).get();
                 event.setPublishedAt(Instant.now());
                 event.setPublishAttempts(event.getPublishAttempts() + 1);
                 event.setLastPublishError(null);

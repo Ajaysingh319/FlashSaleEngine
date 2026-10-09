@@ -17,6 +17,7 @@ public class OrderOutboxEvent {
     private String topic;
     private String eventType;
     private String payload;
+    private String traceId; // request trace ID (TDD 68), sent as the X-Correlation-ID Kafka header
     private Instant createdAt;
     private Instant publishedAt;
     private int publishAttempts;
@@ -28,6 +29,7 @@ public class OrderOutboxEvent {
     public String getTopic() { return topic; } public void setTopic(String topic) { this.topic = topic; }
     public String getEventType() { return eventType; } public void setEventType(String eventType) { this.eventType = eventType; }
     public String getPayload() { return payload; } public void setPayload(String payload) { this.payload = payload; }
+    public String getTraceId() { return traceId; } public void setTraceId(String traceId) { this.traceId = traceId; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getPublishedAt() { return publishedAt; } public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }
     public int getPublishAttempts() { return publishAttempts; } public void setPublishAttempts(int publishAttempts) { this.publishAttempts = publishAttempts; }

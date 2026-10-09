@@ -13,6 +13,7 @@ import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.UnauthorizedOrderAccessException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
+import com.flashsale.order.observability.OrderMetrics;
 import com.flashsale.order.outbox.OrderOutboxService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +40,7 @@ class OrderServiceTest {
     @Mock private IdempotencyRepository idempotencyRepository;
     @Mock private ReservationServiceClient reservationServiceClient;
     @Mock private OrderOutboxService orderOutboxService;
+    @Mock private OrderMetrics orderMetrics;
     @InjectMocks private OrderService orderService;
 
     @Test
@@ -62,6 +64,7 @@ class OrderServiceTest {
         assertNotNull(order.getValue().getReservationExpiresAt(), "order keeps the reservation expiry for order expiry");
         assertTrue(order.getValue().getReservationExpiresAt().isAfter(Instant.now()));
         verify(orderOutboxService).appendCreated(order.getValue());
+        verify(orderMetrics).orderCreated();
     }
 
     @Test
@@ -78,7 +81,7 @@ class OrderServiceTest {
         OrderResponse response = orderService.createOrder("user-1", "key-1", request("reservation-1"));
 
         assertEquals("order-1", response.getOrderId());
-        verifyNoInteractions(reservationServiceClient);
+        verifyNoInteractions(reservationServiceClient, orderMetrics);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.flashsale.payment.outbox;
 
+import com.flashsale.payment.observability.CorrelationId;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashsale.payment.config.PaymentKafkaProperties;
@@ -52,6 +53,7 @@ public class PaymentOutboxService {
         event.setEventType(eventType);
         event.setPayload(serialize(eventId, eventType, timestamp, payment));
         event.setCreatedAt(timestamp);
+        event.setTraceId(CorrelationId.current());
         event.setPublishAttempts(0);
         outboxRepository.insert(event);
     }

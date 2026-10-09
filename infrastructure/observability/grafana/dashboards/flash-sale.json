@@ -1,0 +1,85 @@
+{
+  "uid": "flash-sale",
+  "title": "Flash Sale",
+  "description": "TDD 69 and 78: throughput, latency percentiles, error rate, reservation outcomes, Kafka lag, Redis and MongoDB latency",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries", "title": "Requests per second by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (application) (rate(http_server_requests_seconds_count[1m]))", "legendFormat": "{{application}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Gateway latency P50 / P95 / P99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{application=\"api-gateway\"}[1m])))", "legendFormat": "P50" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application=\"api-gateway\"}[1m])))", "legendFormat": "P95" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application=\"api-gateway\"}[1m])))", "legendFormat": "P99" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Gateway error rate (5xx except 503 RESERVATION_BUSY back-pressure)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "targets": [
+        { "expr": "100 * sum(rate(http_server_requests_seconds_count{application=\"api-gateway\", status=~\"5..\", status!=\"503\"}[1m])) / sum(rate(http_server_requests_seconds_count{application=\"api-gateway\"}[1m]))", "legendFormat": "error %" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Reservation outcomes per second",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(reservation_success_count_total[1m]))", "legendFormat": "success" },
+        { "expr": "sum by (reason) (rate(reservation_failure_count_total[1m]))", "legendFormat": "failure: {{reason}}" },
+        { "expr": "sum(rate(inventory_conflict_count_total[1m]))", "legendFormat": "inventory conflict" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Orders and payments (total)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(order_created_count_total)", "legendFormat": "orders created" },
+        { "expr": "sum(order_confirmed_count_total)", "legendFormat": "orders confirmed" },
+        { "expr": "sum(payment_success_count_total)", "legendFormat": "payments succeeded" },
+        { "expr": "sum(payment_failure_count_total)", "legendFormat": "payments failed" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Kafka consumer lag (records)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "max by (application, client_id) (kafka_consumer_fetch_manager_records_lag_max)", "legendFormat": "{{application}} {{client_id}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Redis lock latency P95",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(redis_lock_latency_seconds_bucket[1m])))", "legendFormat": "P95" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "MongoDB command latency P95 by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, application) (rate(mongodb_driver_commands_seconds_bucket[1m])))", "legendFormat": "{{application}}" }
+      ]
+    }
+  ]
+}

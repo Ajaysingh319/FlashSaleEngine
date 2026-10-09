@@ -1,5 +1,6 @@
 package com.flashsale.reservation.config;
 
+import com.flashsale.reservation.observability.CorrelationId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +26,7 @@ public class RestClientConfig {
         uriBuilderFactory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.VALUES_ONLY);
         return builder
                 .uriTemplateHandler(uriBuilderFactory)
+                .additionalInterceptors(CorrelationId.propagateToHttpCalls())
                 .setConnectTimeout(connectTimeout)
                 .setReadTimeout(readTimeout)
                 .build();

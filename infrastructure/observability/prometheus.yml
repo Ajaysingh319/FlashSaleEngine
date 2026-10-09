@@ -1,0 +1,15 @@
+# Scrapes every service's Micrometer metrics (TDD 69). Started with: docker compose --profile observability up
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: flashsale
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - api-gateway:8080
+          - auth-service:8081
+          - catalog-service:8082
+          - reservation-service:8083
+          - order-service:8084
+          - payment-service:8085

@@ -1,5 +1,6 @@
 package com.flashsale.reservation.outbox;
 
+import com.flashsale.reservation.observability.CorrelationId;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashsale.reservation.document.Reservation;
@@ -28,6 +29,7 @@ public class ReservationOutboxService {
         event.setEventType(eventType);
         event.setPayload(payload(reservation, event.getEventId(), eventType, timestamp));
         event.setCreatedAt(timestamp);
+        event.setTraceId(CorrelationId.current());
         event.setPublishAttempts(0);
         outboxRepository.insert(event);
     }

@@ -20,11 +20,14 @@ import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
 import com.mongodb.client.result.UpdateResult;
+import com.flashsale.reservation.observability.ReservationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.MockitoAnnotations;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -60,6 +63,7 @@ class ReservationServiceTest {
     @Mock private ReservationOutboxService reservationOutboxService;
     @Mock private EventSaleEligibilityValidator eventSaleEligibilityValidator;
     @Mock private CatalogServiceClient catalogServiceClient;
+    @Spy private ReservationMetrics reservationMetrics = new ReservationMetrics(new SimpleMeterRegistry());
     @InjectMocks private ReservationService reservationService;
 
     @BeforeEach

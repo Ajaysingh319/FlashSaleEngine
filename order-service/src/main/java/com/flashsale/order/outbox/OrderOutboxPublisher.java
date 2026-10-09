@@ -1,5 +1,6 @@
 package com.flashsale.order.outbox;
 
+import com.flashsale.order.observability.KafkaTraceHeader;
 import com.flashsale.order.document.OrderOutboxEvent;
 import com.flashsale.order.repository.OrderOutboxEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +28,8 @@ public class OrderOutboxPublisher {
 
     private void publish(OrderOutboxEvent event) {
         try {
-            kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload()).get();
+            kafkaTemplate.send(KafkaTraceHeader.record(
+                    event.getTopic(), event.getAggregateId(), event.getPayload(), event.getTraceId())).get();
             event.setPublishedAt(Instant.now());
             event.setPublishAttempts(event.getPublishAttempts() + 1);
             event.setLastPublishError(null);

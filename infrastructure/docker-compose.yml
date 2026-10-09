@@ -378,6 +378,36 @@ services:
       retries: 5
       start_period: 30s
 
+  # Observability (TDD 69), opt-in so a normal start stays light: docker compose --profile observability up
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - flashsale-network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    profiles: ["observability"]
+    ports:
+      - "3001:3000"
+    environment:
+      # Dashboards are read-only without signing in; editing needs Grafana's admin login (password changed on first use)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - flashsale-network
+
 volumes:
   mongo1-data:
   mongo2-data:

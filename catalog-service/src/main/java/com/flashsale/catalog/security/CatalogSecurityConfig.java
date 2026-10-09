@@ -29,7 +29,7 @@ public class CatalogSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/api/v1/**").permitAll()
                         .requestMatchers(HttpMethod.POST, MANAGED_RESOURCES).hasRole("ADMIN")

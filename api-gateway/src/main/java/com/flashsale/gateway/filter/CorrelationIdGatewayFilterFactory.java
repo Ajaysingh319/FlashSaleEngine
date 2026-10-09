@@ -8,15 +8,19 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
- * Filter to propagate or generate correlation IDs for distributed tracing.
+ * Starts the trace (TDD 68): every request gets an X-Correlation-ID that the services log as "traceId" and pass on
+ * to each other and to Kafka events. Returned to the client too, so a user-reported problem can be found in the logs.
  */
 @Component
 @Slf4j
 public class CorrelationIdGatewayFilterFactory extends AbstractGatewayFilterFactory<CorrelationIdGatewayFilterFactory.Config> {
 
     public static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
+    /** Same rule as the services' CorrelationId: UUID-like IDs only. */
+    private static final Pattern VALID_ID = Pattern.compile("[A-Za-z0-9-]{1,64}");
 
     public CorrelationIdGatewayFilterFactory() {
         super(Config.class);
@@ -28,7 +32,8 @@ public class CorrelationIdGatewayFilterFactory extends AbstractGatewayFilterFact
             ServerHttpRequest request = exchange.getRequest();
             String correlationId = request.getHeaders().getFirst(CORRELATION_ID_HEADER);
 
-            if (correlationId == null || correlationId.trim().isEmpty()) {
+            // Keep a well-formed client ID; replace anything else so it cannot inject text into service logs.
+            if (correlationId == null || !VALID_ID.matcher(correlationId).matches()) {
                 correlationId = UUID.randomUUID().toString();
             }
 

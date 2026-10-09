@@ -46,13 +46,24 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # Histogram buckets let Prometheus compute P50/P95/P99 latency across instances (TDD 69, 78)
+      percentiles-histogram:
+        http.server.requests: true
+        mongodb.driver.commands: true
 
 # Logging
 logging:
+  pattern:
+    # Every log line carries the request trace ID (X-Correlation-ID from the Gateway, TDD 68)
+    level: "%5p [%X{traceId:-}]"
   level:
     com.flashsale: info
     org.springframework: warn

@@ -1,5 +1,6 @@
 package com.flashsale.reservation.outbox;
 
+import com.flashsale.reservation.observability.KafkaTraceHeader;
 import com.flashsale.reservation.document.ReservationOutboxEvent;
 import com.flashsale.reservation.repository.ReservationOutboxEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,8 @@ public class ReservationOutboxPublisher {
     public void publishPending() {
         for (ReservationOutboxEvent event : outboxRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc()) {
             try {
-                kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload()).get();
+                kafkaTemplate.send(KafkaTraceHeader.record(
+                    event.getTopic(), event.getAggregateId(), event.getPayload(), event.getTraceId())).get();
                 event.setPublishedAt(Instant.now());
                 event.setPublishAttempts(event.getPublishAttempts() + 1);
                 event.setLastPublishError(null);

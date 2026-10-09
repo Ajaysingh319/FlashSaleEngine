@@ -18,6 +18,8 @@ import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
 import com.flashsale.reservation.repository.ReservationRepository;
 import com.mongodb.client.result.UpdateResult;
+import com.flashsale.reservation.observability.ReservationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -84,7 +86,8 @@ class ReservationEligibilityFlowTest {
         EventSaleEligibilityValidator validator =
                 new EventSaleEligibilityValidator(catalogClient, Clock.fixed(now, ZoneOffset.UTC));
         return new ReservationService(reservationRepository, inventoryRepository, idempotencyRepository,
-                mongoTemplate, redisTemplate, transactionTemplate, outboxService, validator, catalogClient);
+                mongoTemplate, redisTemplate, transactionTemplate, outboxService, validator, catalogClient,
+                new ReservationMetrics(new SimpleMeterRegistry()));
     }
 
     private void catalogReturns(String status) {

@@ -13,6 +13,7 @@ import com.flashsale.order.exception.ReservationExpiredException;
 import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.exception.ReservationNotFoundException;
 import com.flashsale.order.exception.UnauthorizedOrderAccessException;
+import com.flashsale.order.observability.OrderMetrics;
 import com.flashsale.order.outbox.OrderOutboxService;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
@@ -41,6 +42,7 @@ public class OrderPaymentService {
     private final ProcessedEventRepository processedEventRepository;
     private final ReservationServiceClient reservationServiceClient;
     private final OrderOutboxService orderOutboxService;
+    private final OrderMetrics orderMetrics;
     private final Clock clock;
 
     /**
@@ -116,6 +118,7 @@ public class OrderPaymentService {
         order.applyPaymentResult(result.paymentId(), true, clock.instant());
         orderRepository.save(order);
         orderOutboxService.appendConfirmed(order);
+        orderMetrics.orderConfirmed();
     }
 
     /** Releases the reservation, then fails the order. A reservation already released (e.g. expired) holds nothing. */

@@ -4,6 +4,7 @@ import com.flashsale.payment.document.Payment;
 import com.flashsale.payment.document.PaymentProcessedEvent;
 import com.flashsale.payment.dto.PaymentRequestEnvelope;
 import com.flashsale.payment.dto.PaymentRequestPayload;
+import com.flashsale.payment.observability.PaymentMetrics;
 import com.flashsale.payment.provider.PaymentProvider;
 import com.flashsale.payment.outbox.PaymentOutboxService;
 import com.flashsale.payment.repository.PaymentProcessedEventRepository;
@@ -22,6 +23,7 @@ public class PaymentService {
     private final PaymentProcessedEventRepository processedEventRepository;
     private final PaymentProvider paymentProvider;
     private final PaymentOutboxService paymentOutboxService;
+    private final PaymentMetrics paymentMetrics;
 
     @Transactional
     public void processRequest(PaymentRequestEnvelope event) {
@@ -40,6 +42,7 @@ public class PaymentService {
         payment.complete(paymentProvider.name(), paymentProvider.charge(payment), Instant.now());
         paymentRepository.save(payment);
         paymentOutboxService.appendResult(payment);
+        paymentMetrics.chargeCompleted(payment.getStatus());
         recordProcessed(event.eventId());
     }
 

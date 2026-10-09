@@ -1,5 +1,6 @@
 package com.flashsale.order.outbox;
 
+import com.flashsale.order.observability.CorrelationId;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashsale.order.config.OrderKafkaProperties;
@@ -41,6 +42,7 @@ public class OrderOutboxService {
         event.setEventType(eventType);
         event.setPayload(serialize(eventId, eventType, timestamp, order));
         event.setCreatedAt(timestamp);
+        event.setTraceId(CorrelationId.current());
         event.setPublishAttempts(0);
         outboxRepository.insert(event);
     }

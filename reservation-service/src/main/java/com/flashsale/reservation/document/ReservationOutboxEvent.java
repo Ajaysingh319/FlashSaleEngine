@@ -18,6 +18,7 @@ public class ReservationOutboxEvent {
     private String topic;
     private String eventType;
     private String payload;
+    private String traceId; // request trace ID (TDD 68), sent as the X-Correlation-ID Kafka header
     private Instant createdAt;
     private Instant publishedAt;
     private Integer publishAttempts;

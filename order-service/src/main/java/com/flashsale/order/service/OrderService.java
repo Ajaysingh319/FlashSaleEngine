@@ -19,6 +19,7 @@ import com.flashsale.order.exception.InvalidOrderStateException;
 import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
+import com.flashsale.order.observability.OrderMetrics;
 import com.flashsale.order.outbox.OrderOutboxService;
 import org.springframework.dao.DuplicateKeyException;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class OrderService {
     private final IdempotencyRepository idempotencyRepository;
     private final ReservationServiceClient reservationServiceClient;
     private final OrderOutboxService orderOutboxService;
+    private final OrderMetrics orderMetrics;
 
     @Transactional
     public OrderResponse createOrder(String userId, String idempotencyKey, OrderRequest request) {
@@ -93,6 +95,7 @@ public class OrderService {
             throw new ReservationAlreadyUsedException(reservation.getReservationId());
         }
         orderOutboxService.appendCreated(order);
+        orderMetrics.orderCreated();
         return OrderResponse.from(order);
     }
 

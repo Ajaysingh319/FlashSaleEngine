@@ -20,7 +20,7 @@ public class ReservationSecurityConfig {
         return http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                         // Public, read-only ticket availability (PRD 16 Inventory API)
                         .requestMatchers(HttpMethod.GET, "/api/v1/events/*/inventory", "/api/v1/ticket-types/*/inventory").permitAll()
                         // Service-to-service API (Order Service tokens)

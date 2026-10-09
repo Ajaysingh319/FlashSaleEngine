@@ -5,11 +5,13 @@ import com.flashsale.payment.document.PaymentProcessedEvent;
 import com.flashsale.payment.document.PaymentStatus;
 import com.flashsale.payment.dto.PaymentRequestEnvelope;
 import com.flashsale.payment.dto.PaymentRequestPayload;
+import com.flashsale.payment.observability.PaymentMetrics;
 import com.flashsale.payment.outbox.PaymentOutboxService;
 import com.flashsale.payment.provider.MockPaymentProvider;
 import com.flashsale.payment.provider.PaymentOutcome;
 import com.flashsale.payment.repository.PaymentProcessedEventRepository;
 import com.flashsale.payment.repository.PaymentRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -26,8 +28,9 @@ class PaymentServiceTest {
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final PaymentProcessedEventRepository processedEventRepository = mock(PaymentProcessedEventRepository.class);
     private final PaymentOutboxService outboxService = mock(PaymentOutboxService.class);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final PaymentService service = new PaymentService(paymentRepository, processedEventRepository,
-            new MockPaymentProvider(), outboxService);
+            new MockPaymentProvider(), outboxService, new PaymentMetrics(registry));
 
     private static PaymentRequestEnvelope request(String eventId) {
         return request(eventId, "MOCK_CARD");
@@ -55,6 +58,7 @@ class PaymentServiceTest {
         assertEquals("MOCK", payment.getProvider());
         assertTrue(payment.getTransactionId().startsWith("txn_"));
         assertNull(payment.getFailureReason());
+        assertEquals(1, registry.get("payment.success.count").counter().count());
     }
 
     @Test
@@ -64,6 +68,7 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
         assertEquals("Card declined", payment.getFailureReason());
         assertNull(payment.getTransactionId());
+        assertEquals(1, registry.get("payment.failure.count").tag("status", "FAILED").counter().count());
     }
 
     @Test
@@ -73,6 +78,7 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.TIMEOUT, payment.getStatus());
         assertNull(payment.getTransactionId());
         assertNotNull(payment.getFailureReason());
+        assertEquals(1, registry.get("payment.failure.count").tag("status", "TIMEOUT").counter().count());
     }
 
     @Test

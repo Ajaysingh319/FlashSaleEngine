@@ -16,6 +16,7 @@ import com.flashsale.order.exception.ReservationLifecycleConflictException;
 import com.flashsale.order.exception.ReservationNotFoundException;
 import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.UnauthorizedOrderAccessException;
+import com.flashsale.order.observability.OrderMetrics;
 import com.flashsale.order.outbox.OrderOutboxService;
 import com.flashsale.order.repository.IdempotencyRepository;
 import com.flashsale.order.repository.OrderRepository;
@@ -45,8 +46,9 @@ class OrderPaymentServiceTest {
     private final ProcessedEventRepository processedEventRepository = mock(ProcessedEventRepository.class);
     private final ReservationServiceClient reservationServiceClient = mock(ReservationServiceClient.class);
     private final OrderOutboxService orderOutboxService = mock(OrderOutboxService.class);
+    private final OrderMetrics orderMetrics = mock(OrderMetrics.class);
     private final OrderPaymentService service = new OrderPaymentService(orderRepository, idempotencyRepository,
-            processedEventRepository, reservationServiceClient, orderOutboxService, Clock.fixed(NOW, ZoneOffset.UTC));
+            processedEventRepository, reservationServiceClient, orderOutboxService, orderMetrics, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private Order order;
 
@@ -147,6 +149,7 @@ class OrderPaymentServiceTest {
         inOrder.verify(reservationServiceClient).confirmReservation("res-1", "order-1", "user-1");
         inOrder.verify(orderRepository).save(order);
         inOrder.verify(orderOutboxService).appendConfirmed(order);
+        verify(orderMetrics).orderConfirmed();
         assertEquals(OrderStatus.CONFIRMED, order.getStatus());
         assertEquals(PaymentStatus.SUCCEEDED, order.getPaymentStatus());
         verify(processedEventRepository).insert(any(ProcessedEvent.class));

@@ -23,7 +23,7 @@ public class PaymentSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/payments/*").hasAnyRole("CUSTOMER", "ADMIN")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions

@@ -20,6 +20,7 @@ import com.flashsale.reservation.exception.ReservationExpiredException;
 import com.flashsale.reservation.exception.ReservationNotFoundException;
 import com.flashsale.reservation.exception.ReservationOwnershipException;
 import com.flashsale.reservation.exception.TicketTypeNotFoundException;
+import com.flashsale.reservation.observability.ReservationMetrics;
 import com.flashsale.reservation.outbox.ReservationOutboxService;
 import com.flashsale.reservation.repository.InventoryRepository;
 import com.flashsale.reservation.repository.ReservationIdempotencyRepository;
@@ -70,6 +71,7 @@ public class ReservationService {
     private final ReservationOutboxService reservationOutboxService;
     private final EventSaleEligibilityValidator eventSaleEligibilityValidator;
     private final CatalogServiceClient catalogServiceClient;
+    private final ReservationMetrics reservationMetrics;
 
     public InventoryResponse initializeInventory(InventoryInitializationRequest request) {
         if (request.getTotalQuantity() != request.getAvailableQuantity() + request.getReservedQuantity() + request.getSoldQuantity()) {
@@ -112,7 +114,12 @@ public class ReservationService {
         return inventoryRepository.findByEventIdOrderByTicketTypeIdAsc(eventId).stream().map(this::mapToResponse).toList();
     }
 
+    /** Reserves tickets (TDD 21); every attempt is counted as a success or a failure with its reason (TDD 69). */
     public ReservationResponse createReservation(String userId, String idempotencyKey, ReservationRequest request) {
+        return reservationMetrics.recordReservation(() -> reserve(userId, idempotencyKey, request));
+    }
+
+    private ReservationResponse reserve(String userId, String idempotencyKey, ReservationRequest request) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("Idempotency-Key is required");
         }
@@ -408,7 +415,9 @@ public class ReservationService {
 
     private LockHandle acquireLock(String key) {
         String token = UUID.randomUUID().toString();
-        if (!Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, token, LOCK_LEASE_TIME))) {
+        Boolean acquired = reservationMetrics.timeLockAcquisition(
+                () -> redisTemplate.opsForValue().setIfAbsent(key, token, LOCK_LEASE_TIME));
+        if (!Boolean.TRUE.equals(acquired)) {
             throw new ReservationBusyException();
         }
         return new LockHandle(key, token);
