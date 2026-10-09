@@ -51,8 +51,6 @@ management:
     health:
       show-details: always
   metrics:
-    tags:
-      application: ${spring.application.name}
     distribution:
       # Histogram buckets let Prometheus compute P50/P95/P99 latency across instances (TDD 69, 78)
       percentiles-histogram:

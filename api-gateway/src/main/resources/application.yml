@@ -18,9 +18,12 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOrigins: "http://localhost:3000"
-            allowedMethods: "*"
-            allowedHeaders: "*"
+            allowedOrigins:
+              - "http://localhost:3000"
+            allowedMethods:
+              - "*"
+            allowedHeaders:
+              - "*"
             allowCredentials: true
       routes:
         # Rate-limited high-value operations (PRD 6.11, TDD 54); must precede the broader routes below
@@ -168,8 +171,6 @@ management:
     health:
       show-details: always
   metrics:
-    tags:
-      application: ${spring.application.name}
     distribution:
       # Histogram buckets let Prometheus compute P50/P95/P99 latency across instances (TDD 69, 78)
       percentiles-histogram:

@@ -19,11 +19,6 @@ public final class CorrelationId {
     private CorrelationId() {
     }
 
-    /** The current request's trace ID, or null outside a request or event. */
-    public static String current() {
-        return MDC.get(MDC_KEY);
-    }
-
     /** {@code candidate} if it is a well-formed ID, otherwise a new one. */
     public static String validOrNew(String candidate) {
         return candidate != null && VALID.matcher(candidate).matches() ? candidate : UUID.randomUUID().toString();

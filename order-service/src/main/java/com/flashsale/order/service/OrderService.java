@@ -13,7 +13,6 @@ import com.flashsale.order.exception.ReservationAlreadyUsedException;
 import com.flashsale.order.exception.ReservationNotActiveException;
 import com.flashsale.order.exception.ReservationNotFoundException;
 import com.flashsale.order.exception.ReservationOwnershipException;
-import com.flashsale.order.exception.ReservationServiceUnavailableException;
 import com.flashsale.order.exception.ReservationExpiredException;
 import com.flashsale.order.exception.InvalidOrderStateException;
 import com.flashsale.order.exception.ReservationLifecycleConflictException;

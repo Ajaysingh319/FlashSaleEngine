@@ -1,7 +1,6 @@
 package com.flashsale.payment.observability;
 
 import org.slf4j.MDC;
-import org.springframework.http.client.ClientHttpRequestInterceptor;
 
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -33,16 +32,5 @@ public final class CorrelationId {
     /** Makes the ID current for the calling thread until the returned handle is closed. */
     public static MDC.MDCCloseable open(String candidate) {
         return MDC.putCloseable(MDC_KEY, validOrNew(candidate));
-    }
-
-    /** Adds the current trace ID to outgoing service-to-service calls. */
-    public static ClientHttpRequestInterceptor propagateToHttpCalls() {
-        return (request, body, execution) -> {
-            String traceId = current();
-            if (traceId != null) {
-                request.getHeaders().set(HEADER, traceId);
-            }
-            return execution.execute(request, body);
-        };
     }
 }

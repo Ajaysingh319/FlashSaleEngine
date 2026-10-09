@@ -1,4 +1,5 @@
 # Scrapes every service's Micrometer metrics (TDD 69). Started with: docker compose --profile observability up
+# Each target is labelled with its service name ("application"), which the Grafana dashboard groups by.
 global:
   scrape_interval: 5s
 
@@ -6,10 +7,15 @@ scrape_configs:
   - job_name: flashsale
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets:
-          - api-gateway:8080
-          - auth-service:8081
-          - catalog-service:8082
-          - reservation-service:8083
-          - order-service:8084
-          - payment-service:8085
+      - targets: [api-gateway:8080]
+        labels: { application: api-gateway }
+      - targets: [auth-service:8081]
+        labels: { application: auth-service }
+      - targets: [catalog-service:8082]
+        labels: { application: catalog-service }
+      - targets: [reservation-service:8083]
+        labels: { application: reservation-service }
+      - targets: [order-service:8084]
+        labels: { application: order-service }
+      - targets: [payment-service:8085]
+        labels: { application: payment-service }

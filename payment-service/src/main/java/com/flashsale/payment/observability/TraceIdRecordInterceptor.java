@@ -4,6 +4,7 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.MDC;
 import org.springframework.kafka.listener.RecordInterceptor;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,13 +15,15 @@ import org.springframework.stereotype.Component;
 public class TraceIdRecordInterceptor implements RecordInterceptor<Object, Object> {
 
     @Override
-    public ConsumerRecord<Object, Object> intercept(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
+    public ConsumerRecord<Object, Object> intercept(@NonNull ConsumerRecord<Object, Object> record,
+                                                   @NonNull Consumer<Object, Object> consumer) {
         MDC.put(CorrelationId.MDC_KEY, CorrelationId.validOrNew(KafkaTraceHeader.read(record)));
         return record;
     }
 
     @Override
-    public void afterRecord(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
+    public void afterRecord(@NonNull ConsumerRecord<Object, Object> record,
+                            @NonNull Consumer<Object, Object> consumer) {
         MDC.remove(CorrelationId.MDC_KEY);
     }
 }
