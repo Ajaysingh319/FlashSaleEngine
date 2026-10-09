@@ -356,6 +356,14 @@ services:
       PAYMENT_SERVICE_URL: http://payment-service:8085
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Rate limits per window (PRD 6.11, TDD 54); override from the host for a test run,
+      # e.g. LOGIN_RATE_LIMIT=10000 when many simulated users log in from one machine.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-60s}
+      LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-10}
+      RESERVATION_RATE_LIMIT: ${RESERVATION_RATE_LIMIT:-10}
+      ORDER_RATE_LIMIT: ${ORDER_RATE_LIMIT:-10}
+      PAYMENT_RATE_LIMIT: ${PAYMENT_RATE_LIMIT:-5}
     depends_on:
       redis:
         condition: service_healthy
