@@ -54,17 +54,22 @@ Each service connects to its dedicated logical database inside replica set `rs0`
 - Java 17+ (Eclipse Temurin 17 recommended)
 - Maven 3.8+
 
-### Canonical Command: Run Full Stack via Docker Compose
-All services and infrastructure can be run together using the canonical compose file at `infrastructure/docker-compose.yml`:
+### Run the full stack
+All services and infrastructure run together from `infrastructure/docker-compose.yml`.
 
-```bash
-docker compose -f infrastructure/docker-compose.yml up -d --build
-```
-Or from the `infrastructure` folder:
-```bash
-cd infrastructure
-docker compose up -d --build
-```
+1. **Build the service JARs** (the Docker images copy them from each service's `target/` folder). From the project root, this builds all six services one after another:
+   ```bash
+   mvn package -DskipTests
+   ```
+2. **Configure the environment** (first time only): copy `infrastructure/.env.example` to `infrastructure/.env` and set at least `ADMIN_EMAIL` and `ADMIN_PASSWORD` (password of 8+ characters). Without an admin account no events or ticket types can be created. The real `.env` is git-ignored.
+3. **Start everything:**
+   ```bash
+   cd infrastructure
+   docker compose up -d --build
+   ```
+   After changing code, repeat step 1 and then this step.
+
+To start with a clean database (for example after data-model changes), stop with `docker compose down -v` first.
 
 #### Startup Sequencing
 Docker Compose enforces explicit health dependencies:
@@ -138,3 +143,17 @@ To run the infrastructure containers in Docker and run backend services locally 
    mvn spring-boot:run -f payment-service/pom.xml
    mvn spring-boot:run -f api-gateway/pom.xml
    ```
+   For Auth Service, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in that terminal first so the initial admin account is created.
+
+---
+
+## Testing and Monitoring
+
+| What | Command | Needs |
+|------|---------|-------|
+| Unit tests of one service | `mvn test` (inside the service folder) | Java only |
+| Concurrency tests: 5,000 buyers for 100 tickets, idempotency (TDD 73-74) | `mvn verify -Pconcurrency-tests` (inside `reservation-service`) | Docker (Testcontainers) |
+| End-to-end load test through the Gateway (PRD 11-12, TDD 77-78) | `mvn -q compile exec:java` (inside `load-test`, with `ADMIN_EMAIL` and `ADMIN_PASSWORD` set; `BUYERS`, `TICKETS`, `GATEWAY_URL` optional) | Running stack |
+| Prometheus and Grafana dashboards (TDD 69) | `docker compose --profile observability up -d` (inside `infrastructure`), then open http://localhost:3001 | Running stack |
+
+The load test prints throughput, P50/P95/P99 latency, error rate and the final inventory, and passes only when nothing is oversold.

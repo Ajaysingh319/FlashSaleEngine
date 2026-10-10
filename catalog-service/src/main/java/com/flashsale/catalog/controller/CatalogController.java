@@ -70,9 +70,11 @@ public class CatalogController {
     }
 
     // Ticket Types
-    @PostMapping("/ticket-types")
-    public ResponseEntity<TicketTypeResponse> createTicketType(@Valid @RequestBody TicketTypeRequest request) {
-        return ResponseEntity.ok(ticketTypeService.createTicketType(request));
+    /** PRD 16: a ticket type is created under its event. */
+    @PostMapping("/events/{eventId}/ticket-types")
+    public ResponseEntity<TicketTypeResponse> createTicketType(@PathVariable("eventId") String eventId,
+                                                               @Valid @RequestBody TicketTypeRequest request) {
+        return ResponseEntity.ok(ticketTypeService.createTicketType(eventId, request));
     }
 
     @GetMapping("/ticket-types/{id}")

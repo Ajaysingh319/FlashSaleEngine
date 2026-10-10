@@ -41,7 +41,7 @@ class CatalogSecurityTest {
              "startTime":"2026-12-01T18:00:00Z","endTime":"2026-12-02T00:00:00Z",
              "saleStartTime":"2026-11-01T00:00:00Z","saleEndTime":"2026-12-01T17:00:00Z"}
             """;
-    private static final String TICKET_TYPE_BODY = "{\"eventId\":\"evt-1\",\"name\":\"VIP\",\"price\":4999.0,\"totalQuantity\":100}";
+    private static final String TICKET_TYPE_BODY = "{\"name\":\"VIP\",\"price\":4999.0,\"totalQuantity\":100}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -59,7 +59,7 @@ class CatalogSecurityTest {
                 Arguments.of(HttpMethod.PUT, "/api/v1/events/evt-1", EVENT_BODY),
                 Arguments.of(HttpMethod.DELETE, "/api/v1/events/evt-1", null),
                 Arguments.of(HttpMethod.POST, "/api/v1/events/evt-1/cancel", null),
-                Arguments.of(HttpMethod.POST, "/api/v1/ticket-types", TICKET_TYPE_BODY),
+                Arguments.of(HttpMethod.POST, "/api/v1/events/evt-1/ticket-types", TICKET_TYPE_BODY),
                 Arguments.of(HttpMethod.PUT, "/api/v1/ticket-types/tt-1", TICKET_TYPE_BODY),
                 Arguments.of(HttpMethod.DELETE, "/api/v1/ticket-types/tt-1", null));
     }
@@ -146,10 +146,10 @@ class CatalogSecurityTest {
 
     @Test
     void authorizationIsCheckedBeforeValidation() throws Exception {
-        mockMvc.perform(write(HttpMethod.POST, "/api/v1/ticket-types", "{\"totalQuantity\":-1}")
+        mockMvc.perform(write(HttpMethod.POST, "/api/v1/events/evt-1/ticket-types", "{\"totalQuantity\":-1}")
                         .with(bearer(token("user-1", "CUSTOMER", 300))))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(write(HttpMethod.POST, "/api/v1/ticket-types", "{\"totalQuantity\":-1}")
+        mockMvc.perform(write(HttpMethod.POST, "/api/v1/events/evt-1/ticket-types", "{\"totalQuantity\":-1}")
                         .with(bearer(token("admin-1", "ADMIN", 300))))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(ticketTypeService);

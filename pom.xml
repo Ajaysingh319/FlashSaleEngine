@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        Builds every service's executable JAR in one command, one service after another:
+            mvn package -DskipTests
+        The Dockerfiles copy these JARs (target/*.jar), so run this before Docker Compose builds the images
+        (see "Run the full stack" in README.md).
+        Each service keeps its own pom and can still be built on its own; this file only lists them.
+    -->
+    <groupId>com.flashsale</groupId>
+    <artifactId>flash-sale-engine</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>Flash Sale Engine</name>
+
+    <modules>
+        <module>auth-service</module>
+        <module>catalog-service</module>
+        <module>reservation-service</module>
+        <module>order-service</module>
+        <module>payment-service</module>
+        <module>api-gateway</module>
+    </modules>
+</project>

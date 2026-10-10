@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(CatalogSecurityConfig.class)
 class CatalogControllerTicketTypeSetupTest {
 
-    private static final String VALID_BODY = "{\"eventId\":\"event-1\",\"name\":\"VIP\",\"price\":4999.0,\"totalQuantity\":500}";
+    private static final String VALID_BODY = "{\"name\":\"VIP\",\"price\":4999.0,\"totalQuantity\":500}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -53,7 +53,7 @@ class CatalogControllerTicketTypeSetupTest {
     private EventService eventService;
 
     private ResultActions createTicketType(String body) throws Exception {
-        return mockMvc.perform(post("/api/v1/ticket-types").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(body));
+        return mockMvc.perform(post("/api/v1/events/event-1/ticket-types").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
     private static TicketTypeResponse ready() {
@@ -62,7 +62,7 @@ class CatalogControllerTicketTypeSetupTest {
 
     @Test
     void successfulSetupReturnsReadyTicketType() throws Exception {
-        when(ticketTypeService.createTicketType(any())).thenReturn(ready());
+        when(ticketTypeService.createTicketType(eq("event-1"), any())).thenReturn(ready());
 
         createTicketType(VALID_BODY)
                 .andExpect(status().isOk())
@@ -72,19 +72,19 @@ class CatalogControllerTicketTypeSetupTest {
                 .andExpect(jsonPath("$.availableQuantity").doesNotExist());
 
         ArgumentCaptor<TicketTypeRequest> request = ArgumentCaptor.forClass(TicketTypeRequest.class);
-        verify(ticketTypeService).createTicketType(request.capture());
+        verify(ticketTypeService).createTicketType(eq("event-1"), request.capture());
         assertEquals(500, request.getValue().getTotalQuantity());
     }
 
     @Test
     void clientCannotSetAvailableReservedOrSoldCounts() throws Exception {
-        when(ticketTypeService.createTicketType(any())).thenReturn(ready());
+        when(ticketTypeService.createTicketType(eq("event-1"), any())).thenReturn(ready());
 
         createTicketType(VALID_BODY.replace("}", ",\"availableQuantity\":9999,\"soldQuantity\":-5}"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<TicketTypeRequest> request = ArgumentCaptor.forClass(TicketTypeRequest.class);
-        verify(ticketTypeService).createTicketType(request.capture());
+        verify(ticketTypeService).createTicketType(eq("event-1"), request.capture());
         assertEquals(500, request.getValue().getTotalQuantity());
     }
 
@@ -114,7 +114,7 @@ class CatalogControllerTicketTypeSetupTest {
 
     @Test
     void missingTotalQuantityIsRejected() throws Exception {
-        createTicketType("{\"eventId\":\"event-1\",\"name\":\"VIP\",\"price\":4999.0}")
+        createTicketType("{\"name\":\"VIP\",\"price\":4999.0}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.message", containsString("totalQuantity")));
 
@@ -131,7 +131,7 @@ class CatalogControllerTicketTypeSetupTest {
 
     @Test
     void reservationFailureIs503AndDoesNotExposeInternals() throws Exception {
-        when(ticketTypeService.createTicketType(any()))
+        when(ticketTypeService.createTicketType(eq("event-1"), any()))
                 .thenThrow(new InventoryProvisioningException("Could not initialize inventory for ticket type tt-1",
                         new RuntimeException("I/O error on POST request for http://reservation-service:8083/internal/v1/inventory")));
 
@@ -144,7 +144,7 @@ class CatalogControllerTicketTypeSetupTest {
 
     @Test
     void conflictingSetupIs409() throws Exception {
-        when(ticketTypeService.createTicketType(any()))
+        when(ticketTypeService.createTicketType(eq("event-1"), any()))
                 .thenThrow(new TicketTypeConflictException("Ticket type 'VIP' already exists with a different total quantity"));
 
         createTicketType(VALID_BODY)

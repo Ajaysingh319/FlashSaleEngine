@@ -95,7 +95,7 @@ class GatewayCatalogAdminRoutingTest {
     /** Every management write on both catalog resources, for collection and item paths. */
     static Stream<Arguments> catalogWrites() {
         List<String> paths = List.of("/api/v1/events", "/api/v1/events/evt-1", "/api/v1/events/evt-1/cancel",
-                "/api/v1/ticket-types", "/api/v1/ticket-types/tt-1");
+                "/api/v1/events/evt-1/ticket-types", "/api/v1/ticket-types", "/api/v1/ticket-types/tt-1");
         return paths.stream().flatMap(path -> Stream.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE)
                 .map(method -> Arguments.of(method, path)));
     }

@@ -37,8 +37,8 @@ final class FlashSaleApi {
                 "saleEndTime", now.plus(Duration.ofHours(2)).toString(),
                 "status", "ON_SALE")), "create event");
         String eventId = event.field("id");
-        ApiResponse ticketType = required(gateway.post("setup", "/api/v1/ticket-types", adminToken, null, Map.of(
-                "eventId", eventId, "name", "General", "price", 4999.0, "totalQuantity", tickets)), "create ticket type");
+        ApiResponse ticketType = required(gateway.post("setup", "/api/v1/events/" + eventId + "/ticket-types", adminToken,
+                null, Map.of("name", "General", "price", 4999.0, "totalQuantity", tickets)), "create ticket type");
         return new Sale(eventId, ticketType.field("id"));
     }
 

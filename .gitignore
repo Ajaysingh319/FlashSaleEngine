@@ -13,3 +13,5 @@ target/
 # Maven generated files
 pom.properties
 inputFiles.lst
+# Local environment (secrets); see infrastructure/.env.example
+.env

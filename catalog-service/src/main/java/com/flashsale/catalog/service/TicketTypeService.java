@@ -34,11 +34,11 @@ public class TicketTypeService {
      * reported as success. (eventId, name) identifies the setup: repeating the same request completes a
      * PENDING setup or returns the READY one without adding stock; different values are a conflict.
      */
-    public TicketTypeResponse createTicketType(TicketTypeRequest request) {
-        Event event = eventRepository.findById(request.getEventId())
-                .orElseThrow(() -> new EventNotFoundException("Event not found: " + request.getEventId()));
+    public TicketTypeResponse createTicketType(String eventId, TicketTypeRequest request) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new EventNotFoundException("Event not found: " + eventId));
 
-        TicketType ticketType = ticketTypeRepository.findByEventIdAndName(request.getEventId(), request.getName())
+        TicketType ticketType = ticketTypeRepository.findByEventIdAndName(eventId, request.getName())
                 .orElse(null);
         if (ticketType == null) {
             ticketType = insertPending(request, event);
@@ -70,7 +70,7 @@ public class TicketTypeService {
             return ticketTypeRepository.insert(ticketType);
         } catch (DuplicateKeyException exception) {
             // A concurrent request created the same (eventId, name) first; continue with that record.
-            return ticketTypeRepository.findByEventIdAndName(request.getEventId(), request.getName())
+            return ticketTypeRepository.findByEventIdAndName(event.getId(), request.getName())
                     .orElseThrow(() -> exception);
         }
     }
@@ -79,7 +79,7 @@ public class TicketTypeService {
         if (!Objects.equals(existing.getTotalQuantity(), request.getTotalQuantity())
                 || existing.getPrice() == null || Double.compare(existing.getPrice(), request.getPrice()) != 0) {
             throw new TicketTypeConflictException("Ticket type '" + request.getName() + "' already exists for event "
-                    + request.getEventId() + " with a different price or total quantity");
+                    + existing.getEventId() + " with a different price or total quantity");
         }
     }
 
@@ -95,14 +95,11 @@ public class TicketTypeService {
     }
 
     /**
-     * Updates name and price. The event and totalQuantity are fixed once set up, because Reservation Service
-     * owns the inventory and has no stock adjustment API.
+     * Updates name and price. The event is the one the ticket type was created under, and totalQuantity is fixed
+     * once set up because Reservation Service owns the inventory and has no stock adjustment API.
      */
     public TicketTypeResponse updateTicketType(String id, TicketTypeRequest request) {
         TicketType ticketType = findTicketType(id);
-        if (!Objects.equals(ticketType.getEventId(), request.getEventId())) {
-            throw new TicketTypeConflictException("eventId of ticket type " + id + " cannot be changed");
-        }
         if (!Objects.equals(ticketType.getTotalQuantity(), request.getTotalQuantity())) {
             throw new TicketTypeConflictException("totalQuantity of ticket type " + id
                     + " cannot be changed after setup; inventory is owned by Reservation Service");
@@ -114,7 +111,7 @@ public class TicketTypeService {
             return mapToResponse(ticketTypeRepository.save(ticketType));
         } catch (DuplicateKeyException exception) {
             throw new TicketTypeConflictException("Ticket type '" + request.getName() + "' already exists for event "
-                    + request.getEventId(), exception);
+                    + ticketType.getEventId(), exception);
         }
     }
 

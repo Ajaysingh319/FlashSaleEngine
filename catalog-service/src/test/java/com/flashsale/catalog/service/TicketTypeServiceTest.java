@@ -66,7 +66,6 @@ class TicketTypeServiceTest {
         request.setName(name);
         request.setPrice(price);
         request.setTotalQuantity(totalQuantity);
-        request.setEventId("event-1");
         return request;
     }
 
@@ -88,7 +87,7 @@ class TicketTypeServiceTest {
 
     @Test
     void createSavesPendingThenInitializesInventoryThenMarksReady() {
-        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        TicketTypeResponse response = ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
 
         var order = inOrder(ticketTypeRepository, reservationInventoryClient);
         order.verify(ticketTypeRepository).insert(any(TicketType.class));
@@ -112,7 +111,7 @@ class TicketTypeServiceTest {
             return null;
         }).when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
 
-        ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
     }
 
     @Test
@@ -121,7 +120,7 @@ class TicketTypeServiceTest {
                 .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
 
         assertThrows(InventoryProvisioningException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500)));
 
         verify(ticketTypeRepository).insert(argThat((TicketType t) -> t.getInventoryStatus() == InventoryStatus.PENDING));
         verify(ticketTypeRepository, never()).save(any());
@@ -132,7 +131,7 @@ class TicketTypeServiceTest {
         TicketType pending = existing(InventoryStatus.PENDING, 4999.0, 500);
         when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP")).thenReturn(Optional.of(pending));
 
-        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        TicketTypeResponse response = ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
 
         verify(ticketTypeRepository, never()).insert(any(TicketType.class));
         verify(reservationInventoryClient).initializeInventory("event-1", "tt-1", 500);
@@ -145,7 +144,7 @@ class TicketTypeServiceTest {
         when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP"))
                 .thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
 
-        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        TicketTypeResponse response = ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
 
         assertEquals("tt-1", response.getId());
         assertEquals("READY", response.getInventoryStatus());
@@ -160,9 +159,9 @@ class TicketTypeServiceTest {
                 .thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
 
         assertThrows(TicketTypeConflictException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 600)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 600)));
         assertThrows(TicketTypeConflictException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 5999.0, 500)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 5999.0, 500)));
 
         verifyNoInteractions(reservationInventoryClient);
         verify(ticketTypeRepository, never()).save(any());
@@ -176,7 +175,7 @@ class TicketTypeServiceTest {
                 .thenReturn(Optional.of(winner));
         when(ticketTypeRepository.insert(any(TicketType.class))).thenThrow(new DuplicateKeyException("event_name_unique"));
 
-        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        TicketTypeResponse response = ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
 
         assertEquals("tt-1", response.getId());
         assertEquals("READY", response.getInventoryStatus());
@@ -193,7 +192,7 @@ class TicketTypeServiceTest {
         when(ticketTypeRepository.insert(any(TicketType.class))).thenThrow(new DuplicateKeyException("event_name_unique"));
 
         assertThrows(TicketTypeConflictException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 800)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 800)));
 
         verifyNoInteractions(reservationInventoryClient);
         verify(ticketTypeRepository, never()).save(any());
@@ -208,7 +207,7 @@ class TicketTypeServiceTest {
                 .doNothing()
                 .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
         assertThrows(InventoryProvisioningException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500)));
 
         ArgumentCaptor<TicketType> inserted = ArgumentCaptor.forClass(TicketType.class);
         verify(ticketTypeRepository).insert(inserted.capture());
@@ -217,7 +216,7 @@ class TicketTypeServiceTest {
 
         // Attempt 2: the client resends the same request and finds the PENDING record.
         when(ticketTypeRepository.findByEventIdAndName("event-1", "VIP")).thenReturn(Optional.of(pending));
-        TicketTypeResponse response = ticketTypeService.createTicketType(request("VIP", 4999.0, 500));
+        TicketTypeResponse response = ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500));
 
         verify(ticketTypeRepository, times(1)).insert(any(TicketType.class));
         verify(reservationInventoryClient, times(2)).initializeInventory("event-1", "tt-1", 500);
@@ -231,17 +230,16 @@ class TicketTypeServiceTest {
                 .when(reservationInventoryClient).initializeInventory(anyString(), anyString(), anyInt());
 
         assertThrows(TicketTypeConflictException.class,
-                () -> ticketTypeService.createTicketType(request("VIP", 4999.0, 500)));
+                () -> ticketTypeService.createTicketType("event-1", request("VIP", 4999.0, 500)));
         verify(ticketTypeRepository, never()).save(any());
     }
 
     @Test
     void createForUnknownEventIsRejectedBeforeAnyWrite() {
         TicketTypeRequest request = request("VIP", 4999.0, 500);
-        request.setEventId("missing");
         when(eventRepository.findById("missing")).thenReturn(Optional.empty());
 
-        assertThrows(EventNotFoundException.class, () -> ticketTypeService.createTicketType(request));
+        assertThrows(EventNotFoundException.class, () -> ticketTypeService.createTicketType("missing", request));
         verify(ticketTypeRepository, never()).insert(any(TicketType.class));
         verifyNoInteractions(reservationInventoryClient);
     }
@@ -289,18 +287,16 @@ class TicketTypeServiceTest {
         assertEquals("VIP Gold", response.getName());
         assertEquals(5999.0, response.getPrice());
         assertEquals(500, response.getTotalQuantity());
+        assertEquals("event-1", response.getEventId(), "the event never changes");
         verifyNoInteractions(reservationInventoryClient);
     }
 
     @Test
-    void updateCannotChangeTotalQuantityOrEvent() {
+    void updateCannotChangeTotalQuantity() {
         when(ticketTypeRepository.findById("tt-1")).thenReturn(Optional.of(existing(InventoryStatus.READY, 4999.0, 500)));
-        TicketTypeRequest otherEvent = request("VIP", 4999.0, 500);
-        otherEvent.setEventId("event-2");
 
         assertThrows(TicketTypeConflictException.class,
                 () -> ticketTypeService.updateTicketType("tt-1", request("VIP", 4999.0, 1000)));
-        assertThrows(TicketTypeConflictException.class, () -> ticketTypeService.updateTicketType("tt-1", otherEvent));
         verify(ticketTypeRepository, never()).save(any());
         verifyNoInteractions(reservationInventoryClient);
     }
