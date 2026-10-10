@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Design tokens: used as Tailwind utilities, e.g. bg-brand, text-ink-muted, bg-urgent. */
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-brand: #7138e8;
+  --color-brand-deep: #5825c9;
+  --color-brand-soft: #f3eeff;
+  --color-ink: #191919;
+  --color-ink-muted: #777777;
+  --color-line: #ece8f4;
+  --color-urgent: #d93650;
+  --color-urgent-soft: #fdecef;
+  --color-success: #2f8f5b;
+  --color-success-soft: #e8f5ee;
+
+  --shadow-card: 0 1px 2px rgb(25 25 25 / 0.04), 0 8px 24px rgb(113 56 232 / 0.06);
+  --shadow-lift: 0 12px 32px rgb(113 56 232 / 0.16);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-white font-sans text-ink antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

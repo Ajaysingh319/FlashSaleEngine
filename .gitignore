@@ -15,3 +15,6 @@ pom.properties
 inputFiles.lst
 # Local environment (secrets); see infrastructure/.env.example
 .env
+
+# Claude Code local files (dev-server config, worktrees)
+.claude/
