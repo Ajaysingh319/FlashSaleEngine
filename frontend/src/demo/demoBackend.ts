@@ -1,5 +1,9 @@
 import type { CatalogSource } from "../data/CatalogSource";
+import { AppError } from "../data/errors";
+import type { ReservationSource } from "../data/ReservationSource";
+import { salePhase } from "../data/saleWindow";
 import type { EventResponse, EventStatus, InventoryResponse, TicketTypeResponse } from "../types/catalog";
+import type { ReservationRequest, ReservationResponse } from "../types/reservation";
 
 /*
  * DEMO DATA ONLY: fictional events, venues and stock, used when VITE_DATA_MODE=demo. It is never combined with
@@ -115,17 +119,45 @@ const DEMO_EVENTS: DemoEvent[] = [
 ];
 
 const SIMULATED_LATENCY_MS = 350;
+/** PRD BR-002 and BR-003, mirrored so the demo behaves like Reservation Service. */
+const PURCHASE_LIMIT = 4;
+const HOLD_MS = 10 * 60_000;
 
-export class DemoCatalogSource implements CatalogSource {
+interface DemoStock {
+  total: number;
+  initiallyAvailable: number;
+  available: number;
+}
+
+/**
+ * In-memory stand-in for the backend: serves the catalog and accepts reservations against demo stock, enforcing
+ * the same rules (sale window, stock, 4 per person per event, idempotent retries). Nothing leaves the browser.
+ */
+export class DemoBackend implements CatalogSource, ReservationSource {
   readonly mode = "demo" as const;
   private readonly loadedAt = Date.now();
+  private readonly stock = new Map<string, DemoStock>();
+  private readonly reservedPerEvent = new Map<string, number>();
+  private readonly byIdempotencyKey = new Map<string, ReservationResponse>();
+
+  constructor() {
+    for (const event of DEMO_EVENTS) {
+      event.tiers.forEach((tier, index) =>
+        this.stock.set(ticketTypeId(event, index), { total: tier.total, initiallyAvailable: tier.available, available: tier.available }),
+      );
+    }
+  }
+
+  event(eventId: string): Promise<EventResponse> {
+    return this.respond(() => this.toEvent(this.find(eventId)));
+  }
 
   eventsOnSale(): Promise<EventResponse[]> {
-    return this.respond(DEMO_EVENTS.filter((event) => event.status === "ON_SALE").map((event) => this.toEvent(event)));
+    return this.respond(() => DEMO_EVENTS.filter((event) => event.status === "ON_SALE").map((event) => this.toEvent(event)));
   }
 
   upcomingEvents(): Promise<EventResponse[]> {
-    return this.respond(
+    return this.respond(() =>
       DEMO_EVENTS.filter((event) => event.status === "UPCOMING")
         .sort((a, b) => a.saleStartsIn - b.saleStartsIn)
         .map((event) => this.toEvent(event)),
@@ -133,10 +165,10 @@ export class DemoCatalogSource implements CatalogSource {
   }
 
   ticketTypes(eventId: string): Promise<TicketTypeResponse[]> {
-    const event = this.find(eventId);
-    return this.respond(
-      event.tiers.map((tier, index) => ({
-        id: `${event.id}-tt${index + 1}`,
+    return this.respond(() => {
+      const event = this.find(eventId);
+      return event.tiers.map((tier, index) => ({
+        id: ticketTypeId(event, index),
         name: tier.name,
         price: tier.price,
         totalQuantity: tier.total,
@@ -144,34 +176,77 @@ export class DemoCatalogSource implements CatalogSource {
         eventId: event.id,
         createdAt: this.at(-7 * DAY),
         updatedAt: this.at(-7 * DAY),
-      })),
-    );
+      }));
+    });
   }
 
   inventory(eventId: string): Promise<InventoryResponse[]> {
-    const event = this.find(eventId);
-    return this.respond(
-      event.tiers.map((tier, index) => {
-        const reserved = Math.min(tier.total - tier.available, Math.round(tier.total * 0.05));
+    return this.respond(() => {
+      const event = this.find(eventId);
+      return event.tiers.map((_, index) => {
+        const id = ticketTypeId(event, index);
+        const stock = this.stock.get(id)!;
+        const reservedEarlier = Math.min(stock.total - stock.initiallyAvailable, Math.round(stock.total * 0.05));
+        const reserved = reservedEarlier + (stock.initiallyAvailable - stock.available);
         return {
-          id: `${event.id}-tt${index + 1}`,
+          id,
           eventId: event.id,
-          ticketTypeId: `${event.id}-tt${index + 1}`,
-          totalQuantity: tier.total,
-          availableQuantity: tier.available,
+          ticketTypeId: id,
+          totalQuantity: stock.total,
+          availableQuantity: stock.available,
           reservedQuantity: reserved,
-          soldQuantity: tier.total - tier.available - reserved,
-          updatedAt: this.at(0),
+          soldQuantity: stock.total - stock.available - reserved,
+          updatedAt: new Date().toISOString(),
         };
-      }),
-    );
+      });
+    });
+  }
+
+  reserve(request: ReservationRequest, idempotencyKey: string): Promise<ReservationResponse> {
+    return this.respond(() => {
+      const replay = this.byIdempotencyKey.get(idempotencyKey);
+      if (replay) return replay;
+
+      const event = this.find(request.eventId);
+      if (salePhase(this.toEvent(event)) !== "open") {
+        throw new AppError("sale-closed", "This sale is not open.");
+      }
+      const index = event.tiers.findIndex((_, i) => ticketTypeId(event, i) === request.ticketTypeId);
+      if (index < 0) throw new AppError("not-found", "This ticket type does not exist.");
+      const alreadyReserved = this.reservedPerEvent.get(event.id) ?? 0;
+      if (alreadyReserved + request.quantity > PURCHASE_LIMIT) {
+        throw new AppError("purchase-limit", `You can reserve up to ${PURCHASE_LIMIT} tickets for this event.`);
+      }
+      const stock = this.stock.get(request.ticketTypeId)!;
+      if (stock.available < request.quantity) {
+        throw new AppError("sold-out", "Requested inventory is no longer available.");
+      }
+
+      stock.available -= request.quantity;
+      this.reservedPerEvent.set(event.id, alreadyReserved + request.quantity);
+      const now = Date.now();
+      const unitPrice = event.tiers[index].price;
+      const reservation: ReservationResponse = {
+        reservationId: `demo-res-${crypto.randomUUID().slice(0, 8)}`,
+        eventId: event.id,
+        ticketTypeId: request.ticketTypeId,
+        userId: "demo-user",
+        quantity: request.quantity,
+        status: "ACTIVE",
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + HOLD_MS).toISOString(),
+        unitPrice,
+        amount: unitPrice * request.quantity,
+      };
+      this.byIdempotencyKey.set(idempotencyKey, reservation);
+      return reservation;
+    });
   }
 
   private find(eventId: string): DemoEvent {
     const event = DEMO_EVENTS.find((candidate) => candidate.id === eventId);
-    if (!event) {
-      throw new Error(`Demo event ${eventId} does not exist`);
-    }
+    if (!event) throw new AppError("not-found", "This event does not exist.");
     return event;
   }
 
@@ -196,8 +271,18 @@ export class DemoCatalogSource implements CatalogSource {
     return new Date(this.loadedAt + offsetMs).toISOString();
   }
 
-  /** Resolves after a short delay, so loading states are visible in demo mode too. */
-  private respond<T>(value: T): Promise<T> {
-    return new Promise((resolve) => setTimeout(() => resolve(value), SIMULATED_LATENCY_MS));
+  /** Runs after a short delay like a network call, so loading states show and errors arrive as rejections. */
+  private respond<T>(produce: () => T): Promise<T> {
+    return new Promise((resolve, reject) =>
+      setTimeout(() => {
+        try {
+          resolve(produce());
+        } catch (error) {
+          reject(error);
+        }
+      }, SIMULATED_LATENCY_MS),
+    );
   }
 }
+
+const ticketTypeId = (event: DemoEvent, index: number) => `${event.id}-tt${index + 1}`;

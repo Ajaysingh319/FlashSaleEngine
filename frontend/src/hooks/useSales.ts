@@ -1,4 +1,4 @@
-import { catalog } from "../data/catalog";
+import { catalog } from "../data/sources";
 import { loadSummaries } from "../data/saleSummary";
 import { useAsync } from "./useAsync";
 

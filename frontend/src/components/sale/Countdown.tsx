@@ -46,3 +46,37 @@ export function CountdownChip({ target, prefix }: { target: string; prefix: stri
     </span>
   );
 }
+
+/** Red "Hurry up" panel for the details page, after the reference product page. */
+export function UrgencyCountdown({ target, title, subtitle }: { target: string; title: string; subtitle: string }) {
+  const { days, hours, minutes, seconds, isOver } = useCountdown(target);
+  if (isOver) return null;
+  const segments = [
+    [days, "Days"],
+    [hours, "Hours"],
+    [minutes, "Mins"],
+    [seconds, "Secs"],
+  ] as const;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-urgent/20 bg-urgent-soft px-4 py-3" role="timer">
+      <div className="flex items-center gap-3">
+        <Timer className="size-6 text-urgent" aria-hidden />
+        <div>
+          <p className="font-bold text-urgent">{title}</p>
+          <p className="text-[10px] font-semibold tracking-widest text-ink-muted uppercase">{subtitle}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {segments.map(([value, unit], index) => (
+          <div key={unit} className="flex items-center gap-1.5">
+            {index > 0 && <span className="font-bold text-urgent/60" aria-hidden>:</span>}
+            <div className="min-w-11 rounded-lg bg-white px-1.5 py-1 text-center shadow-sm">
+              <div className="font-extrabold text-ink tabular-nums">{pad2(value)}</div>
+              <div className="text-[9px] font-semibold text-ink-muted uppercase">{unit}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -7,6 +7,8 @@ import type { EventResponse, InventoryResponse, TicketTypeResponse } from "../ty
  */
 export interface CatalogSource {
   readonly mode: DataMode;
+  /** GET /api/v1/events/{eventId}; rejects with AppError("not-found") for an unknown event. */
+  event(eventId: string): Promise<EventResponse>;
   /** GET /api/v1/events/on-sale */
   eventsOnSale(): Promise<EventResponse[]>;
   /** GET /api/v1/events?status=UPCOMING&sortBy=saleStartTime */
