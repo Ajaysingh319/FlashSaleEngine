@@ -17,7 +17,9 @@ npm run build    # type-check and production build into dist/
 Set `VITE_DATA_MODE` in `.env.local` (see `.env.example`):
 
 - `demo` (default): fictional sample events from `src/demo/`, labelled on every page. No backend needed.
-- `api`: real data from the API Gateway at `VITE_API_BASE_URL` (connected in Stage 5).
+- `api`: real data and sign-in through the API Gateway at `VITE_API_BASE_URL`. Start the backend first (see the root README).
+
+To switch, create `frontend/.env.local` containing `VITE_DATA_MODE=api` and restart `npm run dev`.
 
 Both implement `src/data/CatalogSource.ts`, so demo and real data are never mixed.
 

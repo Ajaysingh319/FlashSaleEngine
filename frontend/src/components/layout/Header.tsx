@@ -1,6 +1,7 @@
-import { Menu, Search, Ticket, User, X, Zap } from "lucide-react";
+import { Menu, Search, Ticket, X, Zap } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { AccountMenu } from "./AccountMenu";
 
 const NAV = [
   { to: "/", label: "Home", end: true },
@@ -72,9 +73,7 @@ export function Header() {
           <Link to="/reservations" className="grid size-10 place-items-center rounded-full text-ink transition hover:bg-brand-soft hover:text-brand" aria-label="My reservations" title="My reservations">
             <Ticket className="size-5" aria-hidden />
           </Link>
-          <Link to="/login" className="grid size-10 place-items-center rounded-full text-ink transition hover:bg-brand-soft hover:text-brand" aria-label="Account" title="Account">
-            <User className="size-5" aria-hidden />
-          </Link>
+          <AccountMenu />
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}

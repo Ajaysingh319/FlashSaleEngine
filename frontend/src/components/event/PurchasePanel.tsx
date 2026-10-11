@@ -1,10 +1,14 @@
 import { Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../../auth/AuthProvider";
+import { config } from "../../config/env";
 import { salePhase, type SalePhase } from "../../data/saleWindow";
 import { useCountdown } from "../../hooks/useCountdown";
 import { useReservation } from "../../hooks/useReservation";
 import type { EventResponse, InventoryResponse, TicketTypeResponse } from "../../types/catalog";
 import { formatDateTime, formatMoney } from "../../utils/format";
+import { loginPath } from "../../utils/redirect";
 import { UrgencyCountdown } from "../sale/Countdown";
 import { QuantitySelector } from "../sale/QuantitySelector";
 import { StockIndicator } from "../sale/StockIndicator";
@@ -15,6 +19,9 @@ import { TicketTypePicker } from "./TicketTypePicker";
 
 /** PRD BR-002: at most 4 tickets per person per event; the backend enforces it, the UI just never offers more. */
 const PURCHASE_LIMIT = 4;
+
+const reserveButton =
+  "flex w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-4 text-base font-bold text-white shadow-lg shadow-brand/30 transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-muted disabled:shadow-none";
 
 const CLOSED_LABEL: Record<Exclude<SalePhase, "open">, string> = {
   upcoming: "Sale not open yet",
@@ -36,6 +43,8 @@ export function PurchasePanel({ event, ticketTypes, inventory, onStockChanged }:
 
   const { state, reserve, reset } = useReservation();
   const toast = useToast();
+  const auth = useAuth();
+  const location = useLocation();
   const stockOf = (id: string) => inventory?.find((item) => item.ticketTypeId === id) ?? null;
 
   const firstAvailable = useMemo(
@@ -81,6 +90,8 @@ export function PurchasePanel({ event, ticketTypes, inventory, onStockChanged }:
   const submitting = state.status === "submitting";
   const soldOut = available === 0;
   const blockedLabel = phase !== "open" ? CLOSED_LABEL[phase] : soldOut ? "Sold out" : null;
+  // In api mode reserving needs an account: send signed-out visitors to sign in, then back here.
+  const needsSignIn = config.dataMode === "api" && auth.state.status !== "signed-in";
 
   return (
     <div className="space-y-6">
@@ -106,18 +117,24 @@ export function PurchasePanel({ event, ticketTypes, inventory, onStockChanged }:
 
       {state.status === "failed" && <ReservationErrorAlert error={state.error} onDismiss={reset} />}
 
-      <button
-        type="button"
-        onClick={() => selected && reserve({ eventId: event.id, ticketTypeId: selected.id, quantity })}
-        disabled={submitting || blockedLabel !== null || !selected}
-        aria-busy={submitting}
-        className="flex w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-4 text-base font-bold text-white shadow-lg shadow-brand/30 transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-muted disabled:shadow-none"
-      >
-        {submitting && <Loader2 className="size-5 animate-spin" aria-hidden />}
-        {submitting
-          ? state.attempt > 1 ? "High demand, still trying…" : "Reserving…"
-          : blockedLabel ?? "Reserve Now"}
-      </button>
+      {needsSignIn && blockedLabel === null ? (
+        <Link to={loginPath(location.pathname)} className={`${reserveButton} text-center`}>
+          {auth.state.status === "restoring" ? "Checking your sign-in…" : "Sign in to reserve"}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={() => selected && reserve({ eventId: event.id, ticketTypeId: selected.id, quantity })}
+          disabled={submitting || blockedLabel !== null || !selected}
+          aria-busy={submitting}
+          className={reserveButton}
+        >
+          {submitting && <Loader2 className="size-5 animate-spin" aria-hidden />}
+          {submitting
+            ? state.attempt > 1 ? "High demand, still trying…" : "Reserving…"
+            : blockedLabel ?? "Reserve Now"}
+        </button>
+      )}
 
       <p className="flex items-center gap-2 text-sm text-ink-muted">
         <ShieldCheck className="size-4 shrink-0 text-success" aria-hidden />

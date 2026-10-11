@@ -1,6 +1,8 @@
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/layout/Layout";
 import { ToastProvider } from "./components/ui/Toast";
+import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import { EventDetailsPage } from "./pages/EventDetailsPage";
 import { HomePage } from "./pages/HomePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -13,6 +15,8 @@ const router = createBrowserRouter([
       { path: "/", element: <HomePage /> },
       { path: "/sales", element: <SalesPage /> },
       { path: "/events/:eventId", element: <EventDetailsPage /> },
+      { path: "/login", element: <LoginPage /> },
+      { path: "/register", element: <RegisterPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },
@@ -20,8 +24,10 @@ const router = createBrowserRouter([
 
 export function App() {
   return (
-    <ToastProvider>
-      <RouterProvider router={router} />
-    </ToastProvider>
+    <AuthProvider>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </AuthProvider>
   );
 }

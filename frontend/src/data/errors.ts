@@ -5,6 +5,8 @@
 export type ErrorKind =
   | "not-found"
   | "unauthorized" // 401: sign in again
+  | "forbidden" // 403: signed in, but not allowed
+  | "invalid" // 400 INVALID_REQUEST
   | "sold-out" // 409 INVENTORY_UNAVAILABLE
   | "purchase-limit" // 409 PURCHASE_LIMIT_EXCEEDED
   | "busy" // 503 RESERVATION_BUSY: retry shortly
