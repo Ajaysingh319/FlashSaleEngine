@@ -12,6 +12,9 @@ export type ErrorKind =
   | "busy" // 503 RESERVATION_BUSY: retry shortly
   | "rate-limited" // 429
   | "sale-closed" // sale not open yet, ended, or event cancelled
+  | "conflict" // 409 without a more specific code, e.g. the reservation already has an order
+  | "expired" // 410: the reservation's hold ran out
+  | "unavailable" // 502/503/504: a backend dependency is down
   | "network" // no response
   | "unknown";
 

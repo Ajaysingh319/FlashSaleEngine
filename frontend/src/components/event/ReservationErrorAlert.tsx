@@ -13,6 +13,9 @@ const MESSAGES: Record<AppError["kind"], string> = {
   forbidden: "Your account is not allowed to do this.",
   invalid: "Some details of the request were not accepted.",
   "not-found": "This ticket type is no longer available.",
+  conflict: "This request clashed with an earlier one. Please try again.",
+  expired: "Your hold on these tickets has expired.",
+  unavailable: "A part of the system is temporarily unavailable. Please try again shortly.",
   network: "We could not reach the server. Check your connection and try again.",
   unknown: "Something went wrong while reserving.",
 };

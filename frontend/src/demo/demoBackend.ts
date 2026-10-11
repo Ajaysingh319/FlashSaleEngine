@@ -1,8 +1,10 @@
 import type { CatalogSource } from "../data/CatalogSource";
 import { AppError } from "../data/errors";
+import type { OrderSource } from "../data/OrderSource";
 import type { ReservationSource } from "../data/ReservationSource";
 import { salePhase } from "../data/saleWindow";
 import type { EventResponse, EventStatus, InventoryResponse, TicketTypeResponse } from "../types/catalog";
+import type { OrderResponse, PaymentInitiationResponse, PaymentMethod } from "../types/order";
 import type { ReservationRequest, ReservationResponse } from "../types/reservation";
 
 /*
@@ -122,28 +124,39 @@ const SIMULATED_LATENCY_MS = 350;
 /** PRD BR-002 and BR-003, mirrored so the demo behaves like Reservation Service. */
 const PURCHASE_LIMIT = 4;
 const HOLD_MS = 10 * 60_000;
+/** How long the simulated payment provider takes to answer. */
+const PAYMENT_DELAY_MS = 2_500;
 
 interface DemoStock {
   total: number;
   initiallyAvailable: number;
   available: number;
+  /** Tickets sold through demo checkouts (moved from reserved to sold). */
+  soldInDemo: number;
 }
 
 /**
- * In-memory stand-in for the backend: serves the catalog and accepts reservations against demo stock, enforcing
- * the same rules (sale window, stock, 4 per person per event, idempotent retries). Nothing leaves the browser.
+ * In-memory stand-in for the backend: serves the catalog, reservations, orders and payments against demo stock with
+ * the same rules (sale window, stock, 4 per person per event, 10-minute holds, idempotent retries, asynchronous
+ * payment that confirms or releases the tickets). Nothing leaves the browser.
  */
-export class DemoBackend implements CatalogSource, ReservationSource {
+export class DemoBackend implements CatalogSource, ReservationSource, OrderSource {
   readonly mode = "demo" as const;
   private readonly loadedAt = Date.now();
   private readonly stock = new Map<string, DemoStock>();
-  private readonly reservedPerEvent = new Map<string, number>();
-  private readonly byIdempotencyKey = new Map<string, ReservationResponse>();
+  private readonly reservations = new Map<string, ReservationResponse>();
+  private readonly orders = new Map<string, OrderResponse>();
+  private readonly byIdempotencyKey = new Map<string, ReservationResponse | OrderResponse>();
 
   constructor() {
     for (const event of DEMO_EVENTS) {
       event.tiers.forEach((tier, index) =>
-        this.stock.set(ticketTypeId(event, index), { total: tier.total, initiallyAvailable: tier.available, available: tier.available }),
+        this.stock.set(ticketTypeId(event, index), {
+          total: tier.total,
+          initiallyAvailable: tier.available,
+          available: tier.available,
+          soldInDemo: 0,
+        }),
       );
     }
   }
@@ -187,7 +200,7 @@ export class DemoBackend implements CatalogSource, ReservationSource {
         const id = ticketTypeId(event, index);
         const stock = this.stock.get(id)!;
         const reservedEarlier = Math.min(stock.total - stock.initiallyAvailable, Math.round(stock.total * 0.05));
-        const reserved = reservedEarlier + (stock.initiallyAvailable - stock.available);
+        const reserved = reservedEarlier + (stock.initiallyAvailable - stock.available - stock.soldInDemo);
         return {
           id,
           eventId: event.id,
@@ -205,7 +218,8 @@ export class DemoBackend implements CatalogSource, ReservationSource {
   reserve(request: ReservationRequest, idempotencyKey: string): Promise<ReservationResponse> {
     return this.respond(() => {
       const replay = this.byIdempotencyKey.get(idempotencyKey);
-      if (replay) return replay;
+      if (replay) return { ...(replay as ReservationResponse) };
+      this.expireLapsedHolds();
 
       const event = this.find(request.eventId);
       if (salePhase(this.toEvent(event)) !== "open") {
@@ -213,7 +227,9 @@ export class DemoBackend implements CatalogSource, ReservationSource {
       }
       const index = event.tiers.findIndex((_, i) => ticketTypeId(event, i) === request.ticketTypeId);
       if (index < 0) throw new AppError("not-found", "This ticket type does not exist.");
-      const alreadyReserved = this.reservedPerEvent.get(event.id) ?? 0;
+      const alreadyReserved = [...this.reservations.values()]
+        .filter((held) => held.eventId === event.id && (held.status === "ACTIVE" || held.status === "CONFIRMED"))
+        .reduce((sum, held) => sum + held.quantity, 0);
       if (alreadyReserved + request.quantity > PURCHASE_LIMIT) {
         throw new AppError("purchase-limit", `You can reserve up to ${PURCHASE_LIMIT} tickets for this event.`);
       }
@@ -223,7 +239,6 @@ export class DemoBackend implements CatalogSource, ReservationSource {
       }
 
       stock.available -= request.quantity;
-      this.reservedPerEvent.set(event.id, alreadyReserved + request.quantity);
       const now = Date.now();
       const unitPrice = event.tiers[index].price;
       const reservation: ReservationResponse = {
@@ -239,9 +254,163 @@ export class DemoBackend implements CatalogSource, ReservationSource {
         unitPrice,
         amount: unitPrice * request.quantity,
       };
+      this.reservations.set(reservation.reservationId, reservation);
       this.byIdempotencyKey.set(idempotencyKey, reservation);
-      return reservation;
+      return { ...reservation };
     });
+  }
+
+  reservation(reservationId: string): Promise<ReservationResponse> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      return { ...this.findReservation(reservationId) };
+    });
+  }
+
+  myReservations(): Promise<ReservationResponse[]> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      return newestFirst([...this.reservations.values()]).map((reservation) => ({ ...reservation }));
+    });
+  }
+
+  cancel(reservationId: string): Promise<void> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      const reservation = this.findReservation(reservationId);
+      if (reservation.status !== "ACTIVE") throw new AppError("conflict", "Only an active reservation can be cancelled.");
+      if (this.orderFor(reservationId)) throw new AppError("conflict", "This reservation has an order; cancel the order instead.");
+      this.release(reservation, "CANCELLED");
+    });
+  }
+
+  createOrder(reservationId: string, idempotencyKey: string): Promise<OrderResponse> {
+    return this.respond(() => {
+      const replay = this.byIdempotencyKey.get(idempotencyKey);
+      if (replay) return { ...(replay as OrderResponse) };
+      this.expireLapsedHolds();
+      const reservation = this.findReservation(reservationId);
+      if (reservation.status === "EXPIRED") throw new AppError("expired", "This reservation has expired.");
+      if (reservation.status !== "ACTIVE") throw new AppError("invalid", "This reservation is no longer active.");
+      if (this.orderFor(reservationId)) throw new AppError("conflict", "This reservation already has an order.");
+
+      const now = new Date().toISOString();
+      const order: OrderResponse = {
+        orderId: `demo-ord-${crypto.randomUUID().slice(0, 8)}`,
+        userId: reservation.userId,
+        reservationId,
+        eventId: reservation.eventId,
+        ticketTypeId: reservation.ticketTypeId,
+        quantity: reservation.quantity,
+        unitPrice: reservation.unitPrice,
+        totalAmount: reservation.amount,
+        status: "PENDING_PAYMENT",
+        paymentStatus: "PENDING",
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.orders.set(order.orderId, order);
+      this.byIdempotencyKey.set(idempotencyKey, order);
+      return { ...order };
+    });
+  }
+
+  order(orderId: string): Promise<OrderResponse> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      return { ...this.findOrder(orderId) };
+    });
+  }
+
+  myOrders(): Promise<OrderResponse[]> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      return newestFirst([...this.orders.values()]).map((order) => ({ ...order }));
+    });
+  }
+
+  cancelOrder(orderId: string): Promise<OrderResponse> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      const order = this.findOrder(orderId);
+      if (order.status !== "PENDING_PAYMENT" || order.paymentStatus !== "PENDING") {
+        throw new AppError("conflict", "Only an order awaiting payment can be cancelled.");
+      }
+      this.settleOrder(order, "CANCELLED", "PENDING");
+      this.release(this.findReservation(order.reservationId), "CANCELLED");
+      return { ...order };
+    });
+  }
+
+  pay(orderId: string, method: PaymentMethod, _idempotencyKey: string): Promise<PaymentInitiationResponse> {
+    return this.respond(() => {
+      this.expireLapsedHolds();
+      const order = this.findOrder(orderId);
+      // One payment per order, like Order Service: asking again returns the payment already started.
+      if (order.paymentStatus !== "PENDING") return { paymentId: `demo-pay-${order.orderId}`, orderId, status: order.paymentStatus };
+      if (order.status === "EXPIRED") throw new AppError("expired", "This order expired before it was paid.");
+      if (order.status !== "PENDING_PAYMENT") throw new AppError("conflict", "This order can no longer be paid.");
+
+      this.settleOrder(order, "PENDING_PAYMENT", "PROCESSING");
+      setTimeout(() => this.settlePayment(order.orderId, method), PAYMENT_DELAY_MS);
+      return { paymentId: `demo-pay-${order.orderId}`, orderId, status: "PROCESSING" };
+    });
+  }
+
+  /** The simulated provider's answer: success sells the tickets; a decline or timeout releases them (TDD 35-36). */
+  private settlePayment(orderId: string, method: PaymentMethod): void {
+    const order = this.orders.get(orderId);
+    if (!order || order.paymentStatus !== "PROCESSING") return;
+    const reservation = this.findReservation(order.reservationId);
+    if (method === "MOCK_CARD") {
+      reservation.status = "CONFIRMED";
+      reservation.updatedAt = new Date().toISOString();
+      this.stock.get(reservation.ticketTypeId)!.soldInDemo += reservation.quantity;
+      this.settleOrder(order, "CONFIRMED", "SUCCEEDED");
+    } else {
+      this.settleOrder(order, "PAYMENT_FAILED", "FAILED");
+      this.release(reservation, "CANCELLED");
+    }
+  }
+
+  /** Holds past their 10 minutes expire (unless their payment is already in progress) and return to stock. */
+  private expireLapsedHolds(): void {
+    const now = Date.now();
+    for (const reservation of this.reservations.values()) {
+      if (reservation.status !== "ACTIVE" || Date.parse(reservation.expiresAt) > now) continue;
+      const order = this.orderFor(reservation.reservationId);
+      if (order?.paymentStatus === "PROCESSING") continue;
+      if (order?.status === "PENDING_PAYMENT") this.settleOrder(order, "EXPIRED", order.paymentStatus);
+      this.release(reservation, "EXPIRED");
+    }
+  }
+
+  private release(reservation: ReservationResponse, status: "CANCELLED" | "EXPIRED"): void {
+    reservation.status = status;
+    reservation.updatedAt = new Date().toISOString();
+    this.stock.get(reservation.ticketTypeId)!.available += reservation.quantity;
+  }
+
+  private settleOrder(order: OrderResponse, status: OrderResponse["status"], paymentStatus: OrderResponse["paymentStatus"]): void {
+    order.status = status;
+    order.paymentStatus = paymentStatus;
+    order.updatedAt = new Date().toISOString();
+  }
+
+  private orderFor(reservationId: string): OrderResponse | undefined {
+    return [...this.orders.values()].find((order) => order.reservationId === reservationId);
+  }
+
+  private findReservation(reservationId: string): ReservationResponse {
+    const reservation = this.reservations.get(reservationId);
+    if (!reservation) throw new AppError("not-found", "This reservation does not exist.");
+    return reservation;
+  }
+
+  private findOrder(orderId: string): OrderResponse {
+    const order = this.orders.get(orderId);
+    if (!order) throw new AppError("not-found", "This order does not exist.");
+    return order;
   }
 
   private find(eventId: string): DemoEvent {
@@ -286,3 +455,6 @@ export class DemoBackend implements CatalogSource, ReservationSource {
 }
 
 const ticketTypeId = (event: DemoEvent, index: number) => `${event.id}-tt${index + 1}`;
+
+const newestFirst = <T extends { createdAt: string }>(items: T[]) =>
+  [...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));

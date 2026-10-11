@@ -14,14 +14,22 @@ const KIND_BY_CODE: Record<string, ErrorKind> = {
   RESERVATION_NOT_FOUND: "not-found",
   USER_NOT_FOUND: "not-found",
   INVALID_REQUEST: "invalid",
+  RESERVATION_EXPIRED: "expired",
+  SERVICE_UNAVAILABLE: "unavailable",
 };
 
+/** Used when the body has no code, e.g. Order Service's {status, error, message} envelope. */
 const KIND_BY_STATUS: Record<number, ErrorKind> = {
   400: "invalid",
   401: "unauthorized",
   403: "forbidden",
   404: "not-found",
+  409: "conflict",
+  410: "expired",
   429: "rate-limited",
+  502: "unavailable",
+  503: "unavailable",
+  504: "unavailable",
 };
 
 interface ErrorBody {
