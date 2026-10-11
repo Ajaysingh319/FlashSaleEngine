@@ -38,7 +38,7 @@ interface DemoEvent {
 
 const DEMO_EVENTS: DemoEvent[] = [
   {
-    id: "demo-neon-skyline",
+    id: "neon-skyline",
     name: "Neon Skyline Live: Arena Tour",
     description: "An electro-pop night of lasers, live vocals and a 360° stage. One night only.",
     venue: "Skyline Arena",
@@ -53,7 +53,7 @@ const DEMO_EVENTS: DemoEvent[] = [
     ],
   },
   {
-    id: "demo-monsoon-beats",
+    id: "monsoon-beats",
     name: "Monsoon Beats Festival",
     description: "Two stages, twenty artists and a rain-proof open-air garden for a full day of music.",
     venue: "Garden Grounds",
@@ -68,7 +68,7 @@ const DEMO_EVENTS: DemoEvent[] = [
     ],
   },
   {
-    id: "demo-champions-night",
+    id: "champions-night",
     name: "Champions Cricket Night",
     description: "Floodlit final under the stars. Every seat sold within minutes of opening.",
     venue: "Harbour Stadium",
@@ -80,7 +80,7 @@ const DEMO_EVENTS: DemoEvent[] = [
     tiers: [{ name: "Stand", price: 1499, total: 500, available: 0 }],
   },
   {
-    id: "demo-comedy-gala",
+    id: "comedy-gala",
     name: "Stand-up Saturdays: Comedy Gala",
     description: "Five headliners, one stage and two hours of brand-new material.",
     venue: "The Laugh Loft",
@@ -95,7 +95,7 @@ const DEMO_EVENTS: DemoEvent[] = [
     ],
   },
   {
-    id: "demo-symphony-stars",
+    id: "symphony-stars",
     name: "Symphony Under the Stars",
     description: "A 60-piece orchestra performs film scores in an open-air amphitheatre.",
     venue: "Hilltop Amphitheatre",
@@ -107,7 +107,7 @@ const DEMO_EVENTS: DemoEvent[] = [
     tiers: [{ name: "Lawn", price: 1299, total: 400, available: 400 }],
   },
   {
-    id: "demo-indie-premiere",
+    id: "indie-premiere",
     name: "Indie Film Premiere Night",
     description: "Red carpet, a world premiere and a Q&A with the director and cast.",
     venue: "Lumière Cinema",
@@ -147,6 +147,7 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
   private readonly reservations = new Map<string, ReservationResponse>();
   private readonly orders = new Map<string, OrderResponse>();
   private readonly byIdempotencyKey = new Map<string, ReservationResponse | OrderResponse>();
+  private readonly paymentIds = new Map<string, string>();
 
   constructor() {
     for (const event of DEMO_EVENTS) {
@@ -242,10 +243,10 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
       const now = Date.now();
       const unitPrice = event.tiers[index].price;
       const reservation: ReservationResponse = {
-        reservationId: `demo-res-${crypto.randomUUID().slice(0, 8)}`,
+        reservationId: objectId(),
         eventId: event.id,
         ticketTypeId: request.ticketTypeId,
-        userId: "demo-user",
+        userId: "sample-user",
         quantity: request.quantity,
         status: "ACTIVE",
         createdAt: new Date(now).toISOString(),
@@ -296,7 +297,7 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
 
       const now = new Date().toISOString();
       const order: OrderResponse = {
-        orderId: `demo-ord-${crypto.randomUUID().slice(0, 8)}`,
+        orderId: objectId(),
         userId: reservation.userId,
         reservationId,
         eventId: reservation.eventId,
@@ -347,13 +348,13 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
       this.expireLapsedHolds();
       const order = this.findOrder(orderId);
       // One payment per order, like Order Service: asking again returns the payment already started.
-      if (order.paymentStatus !== "PENDING") return { paymentId: `demo-pay-${order.orderId}`, orderId, status: order.paymentStatus };
+      if (order.paymentStatus !== "PENDING") return { paymentId: this.paymentIdOf(order), orderId, status: order.paymentStatus };
       if (order.status === "EXPIRED") throw new AppError("expired", "This order expired before it was paid.");
       if (order.status !== "PENDING_PAYMENT") throw new AppError("conflict", "This order can no longer be paid.");
 
       this.settleOrder(order, "PENDING_PAYMENT", "PROCESSING");
       setTimeout(() => this.settlePayment(order.orderId, method), PAYMENT_DELAY_MS);
-      return { paymentId: `demo-pay-${order.orderId}`, orderId, status: "PROCESSING" };
+      return { paymentId: this.paymentIdOf(order), orderId, status: "PROCESSING" };
     });
   }
 
@@ -395,6 +396,12 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
     order.status = status;
     order.paymentStatus = paymentStatus;
     order.updatedAt = new Date().toISOString();
+  }
+
+  /** One payment per order, so the order's payment ID never changes. */
+  private paymentIdOf(order: OrderResponse): string {
+    if (!this.paymentIds.has(order.orderId)) this.paymentIds.set(order.orderId, objectId());
+    return this.paymentIds.get(order.orderId)!;
   }
 
   private orderFor(reservationId: string): OrderResponse | undefined {
@@ -455,6 +462,9 @@ export class DemoBackend implements CatalogSource, ReservationSource, OrderSourc
 }
 
 const ticketTypeId = (event: DemoEvent, index: number) => `${event.id}-tt${index + 1}`;
+
+/** A 24-hex-digit ID shaped like the MongoDB IDs the real backend returns. */
+const objectId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const newestFirst = <T extends { createdAt: string }>(items: T[]) =>
   [...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));

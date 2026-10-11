@@ -1,6 +1,5 @@
 import { CheckCircle2, Clock4, TimerOff } from "lucide-react";
 import { Link } from "react-router-dom";
-import { config } from "../../config/env";
 import { useCountdown } from "../../hooks/useCountdown";
 import type { ReservationResponse } from "../../types/reservation";
 import { formatMoney, pad2 } from "../../utils/format";
@@ -30,12 +29,7 @@ export function ReservationConfirmation({ reservation, ticketTypeName, onReserve
     <div className="rounded-3xl border border-success/25 bg-success-soft p-6">
       <div className="flex items-start gap-3">
         <CheckCircle2 className="size-7 shrink-0 text-success" aria-hidden />
-        <div>
-          <h2 className="text-lg font-bold">Tickets reserved</h2>
-          {config.dataMode === "demo" && (
-            <p className="text-xs font-semibold text-urgent">Demo reservation: nothing was reserved on a real system.</p>
-          )}
-        </div>
+        <h2 className="text-lg font-bold">Tickets reserved</h2>
       </div>
 
       <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">

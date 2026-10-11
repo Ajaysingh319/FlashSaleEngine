@@ -5,7 +5,6 @@ import { OrderStatusBadge, ReservationStatusBadge } from "../components/account/
 import { EventArt } from "../components/sale/EventArt";
 import { Skeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/StateMessage";
-import { config } from "../config/env";
 import { catalog } from "../data/sources";
 import { useAsync } from "../hooks/useAsync";
 import { checkoutStage, useCheckout, type CheckoutState } from "../hooks/useCheckout";
@@ -169,9 +168,7 @@ function Outcome({ order, eventId }: { order: NonNullable<CheckoutState["order"]
   if (order.status === "CONFIRMED") {
     return (
       <Panel icon={<PartyPopper className="size-7 text-success" aria-hidden />} title="You're going! Tickets confirmed">
-        Order <span className="font-mono text-xs">{order.orderId}</span> is paid and your tickets are yours.
-        {config.dataMode === "demo" && <span className="mt-1 block text-xs font-semibold text-urgent">Demo order: nothing was charged or sold.</span>}
-        <Actions eventId={eventId} primary="View my orders" primaryTo="/orders" />
+        Order <span className="font-mono text-xs">{order.orderId}</span> is paid and your tickets are yours.        <Actions eventId={eventId} primary="View my orders" primaryTo="/orders" />
       </Panel>
     );
   }

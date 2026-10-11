@@ -71,6 +71,24 @@ All services and infrastructure run together from `infrastructure/docker-compose
 
 To start with a clean database (for example after data-model changes), stop with `docker compose down -v` first.
 
+### See it working end to end (backend + frontend)
+After the stack is up (wait until `docker compose ps` shows the services as healthy):
+
+4. **Create sales in the backend** (the database starts empty). From the project root, with the admin account from `infrastructure/.env`:
+   ```powershell
+   $env:ADMIN_EMAIL="<admin email>"; $env:ADMIN_PASSWORD="<admin password>"; node scripts/seed-sales.mjs
+   ```
+   This creates four live sales and one upcoming sale, with ticket types, through the API Gateway. Re-running skips sales that already exist.
+5. **Start the frontend** (Node.js 20.19+; it uses the live backend by default):
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+6. **Open http://localhost:3000** and try the real flow: create an account (any email, password of 8+ characters), open a live sale, reserve tickets, then pay on the checkout page with a test card. Watch the stock count drop, the order move from processing to confirmed in My Orders, and a declined test card release the tickets again. Use a normal account, not the admin: orders are for customers.
+
+To preview the design without the backend, create `frontend/.env.local` with `VITE_DATA_MODE=demo` and restart `npm run dev`.
+
 #### Startup Sequencing
 Docker Compose enforces explicit health dependencies:
 1. `mongo1`, `mongo2`, `mongo3`, `redis`, `zookeeper` start first.

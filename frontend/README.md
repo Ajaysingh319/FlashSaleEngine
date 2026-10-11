@@ -4,7 +4,7 @@ React + Vite + TypeScript + Tailwind CSS. Every request goes through the API Gat
 
 ## Run
 
-Requires Node.js 20.19+ (LTS recommended).
+Requires Node.js 20.19+ (LTS recommended) and, for real data, the backend running (see "See it working end to end" in the root README).
 
 ```bash
 npm install
@@ -12,16 +12,35 @@ npm run dev      # http://localhost:3000 (the origin the Gateway's CORS rule all
 npm run build    # type-check and production build into dist/
 ```
 
+## Pages
+
+| Path | Page | Sign-in |
+|------|------|---------|
+| `/` | Home: featured live sale, live and upcoming sales | No |
+| `/sales` | All sales, with search (`?q=`) | No |
+| `/events/:id` | Event: ticket types, live stock, quantity, Reserve Now | To reserve |
+| `/checkout/:reservationId` | Order and simulated payment, live result | Yes |
+| `/reservations`, `/orders` | My Reservations, My Orders | Yes |
+| `/login`, `/register` | Sign in, create account | No |
+
 ## Data modes
 
-Set `VITE_DATA_MODE` in `.env.local` (see `.env.example`):
+`VITE_DATA_MODE` (see `.env.example`; override in `.env.local`, then restart `npm run dev`):
 
-- `demo` (default): fictional sample events from `src/demo/`, labelled on every page. No backend needed.
-- `api`: real data and sign-in through the API Gateway at `VITE_API_BASE_URL`. Start the backend first (see the root README).
+- `api` (default): real data and sign-in through the API Gateway at `VITE_API_BASE_URL`. If the backend is not running,
+  pages say the sales are unavailable; nothing is faked.
+- `demo`: built-in sample sales from `src/demo/` for previewing the design without a backend. A small
+  "Sample data" chip in the header marks this mode; sign-in is not available in it.
 
-To switch, create `frontend/.env.local` containing `VITE_DATA_MODE=api` and restart `npm run dev`.
+Both implement the contracts in `src/data/` (`CatalogSource`, `ReservationSource`, `OrderSource`), and `src/data/sources.ts`
+picks one, so sample and real data are never mixed.
 
-Both implement `src/data/CatalogSource.ts`, so demo and real data are never mixed.
+## How it talks to the backend
+
+- `src/api/http.ts`: one Axios client with the Bearer token; a 401 triggers a single shared token refresh and one retry.
+- Access token in memory only; refresh token in `sessionStorage` (cleared when the tab closes).
+- `src/api/toAppError.ts`: maps every backend error format to one error model, so pages show the right message and action.
+- Reservations, orders and payments send an `Idempotency-Key`; retries reuse it, so nothing is ever created twice.
 
 ## Event images
 

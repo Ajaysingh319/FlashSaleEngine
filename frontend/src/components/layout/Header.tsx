@@ -1,6 +1,7 @@
 import { Menu, Search, Ticket, X, Zap } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { SampleDataBadge } from "../ui/SampleDataBadge";
 import { AccountMenu } from "./AccountMenu";
 
 const NAV = [
@@ -61,6 +62,7 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b border-line/70 bg-white/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
         <Logo />
+        <SampleDataBadge />
         <nav className="ml-4 hidden items-center gap-1 lg:flex" aria-label="Main">
           {NAV.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={navClass}>
